@@ -293,15 +293,58 @@ def fit_lyric(draw, text, width, area, sizes):
     return None
 
 
-def lyric_lines(now):
-    """가사가 있으면 (지금 줄 번호, 지금 줄, 다음 줄, 지금 줄이 지난 정도 0~1, 다음 가사까지 ms). 없으면 None
-    줄 번호 -1 = 첫 가사 전 (전주). 다음 가사까지 ms 는 다음 가사가 없으면 None"""
+_last_pos = {"id": None, "pos": 0.0}
+
+
+def play_pos(now):
+    """지금 재생 위치 (ms). 맥에 1초에 한 번만 물어보니까 그 사이는 시계로 더해요.
+    맥 소식이 조금 늦게 와서 위치가 1~2초 뒤로 가면 무시해요 → 가사가 앞 줄 ↔ 새 줄로 깜빡이지 않게.
+    (그보다 많이 뒤로 가면 진짜로 되감은 것)"""
+    pos = now.get("progress") or 0
+    playing = bool(now.get("isPlaying"))
+    if playing and now.get("_at"):
+        pos += (time.monotonic() - now["_at"]) * 1000
+    last = _last_pos
+    if playing and now.get("id") == last["id"] and last["pos"] - 2000 < pos < last["pos"]:
+        pos = last["pos"]
+    last["id"], last["pos"] = now.get("id"), pos
+    return pos
+
+
+_base_cache = {}
+
+
+def base_size(draw, lines, width, area, sizes):
+    """이 곡의 기본 글씨 크기: 가사 줄의 80% 이상이 잘리지 않고 들어가는 가장 큰 크기.
+    줄마다 제일 크게 하면 22px ↔ 14px 로 들쭉날쭉해서 어색해요 → 이 크기보다 크게는 안 써요 (안 들어가는 줄만 작게).
+    곡마다 한 번만 셈 (줄 바꿈 수만 세서 빠름)"""
+    key = (width, area, sizes)
+    hit = _base_cache.get(key)
+    if hit and hit[0] is lines:
+        return hit[1]
+    texts = [l["text"] for l in lines if l["text"]]
+    best = sizes[-1]
+    for size in sizes:
+        font, lh = lyric_font(size), size + 2
+        ok = 0
+        for t in texts:
+            rows, split = greedy(draw, t, font, width)
+            ok += len(rows) * lh <= area + 2 and not split
+        if not texts or ok >= 0.8 * len(texts):
+            best = size
+            break
+    _base_cache[key] = (lines, best)
+    return best
+
+
+def lyric_lines(now, lead=LYRIC_LEAD):
+    """가사가 있으면 (지금 줄 번호, 지금 줄, 다음 줄, 지금 줄이 지난 정도 0~1, 다음 가사까지 ms, 가사 전체). 없으면 None
+    줄 번호 -1 = 첫 가사 전 (전주). 다음 가사까지 ms 는 다음 가사가 없으면 None
+    lead: 이만큼(ms) 먼저 보여줌 (노래와 맞아 보이게 + 화면에 그리는 데 걸리는 시간)"""
     lines = now.get("_lyrics")
     if not lines:
         return None
-    pos = (now.get("progress") or 0) + LYRIC_LEAD
-    if now.get("isPlaying") and now.get("_at"):
-        pos += (time.monotonic() - now["_at"]) * 1000
+    pos = play_pos(now) + lead
     i = -1
     while i + 1 < len(lines) and lines[i + 1]["t"] <= pos:
         i += 1
@@ -312,12 +355,12 @@ def lyric_lines(now):
     end = lines[i + 1]["t"] if i + 1 < len(lines) else max(start + 4000, now.get("duration") or 0)
     frac = max(0.0, min(1.0, (pos - start) / max(1, end - start))) if i >= 0 else 0.0
     wait = lines[k]["t"] - pos if k is not None else None
-    return i, cur, nxt, frac, wait
+    return i, cur, nxt, frac, wait, lines
 
 
 def lyric_countdown(lyric):
     """전주·간주 끝 3초: 3 → 2 → 1 (그 밖엔 0)"""
-    _, cur, _, _, wait = lyric
+    _, cur, _, _, wait, _ = lyric
     if cur or wait is None or wait > 3000:
         return 0
     return max(1, min(3, int(wait // 1000) + 1))
@@ -325,29 +368,31 @@ def lyric_countdown(lyric):
 
 def lyric_key(lyric, small):
     """가사 화면이 바뀌었는지 볼 값 (줄 · 진행 선 칸 · 카운트다운이 바뀔 때만 다시 그림)"""
-    i, cur, nxt, frac, _ = lyric
+    i, cur, nxt, frac, _, _ = lyric
     step = int(frac * LYRIC_STEPS) if cur and nxt and not small else 0
     return i, step, lyric_countdown(lyric)
 
 
 def render_lyrics(draw, font, size, lyric, room=0):
     """가사 화면
-      지금 줄: 잘리지 않는 가장 큰 글씨(22 → 12px)로, 줄 길이를 고르게 나눠 가운데 정렬
+      지금 줄: 잘리지 않는 가장 큰 글씨(22 → 12px, 단 이 곡의 기본 크기까지만)로, 줄 길이를 고르게 나눠 가운데 정렬
       그 아래: 지금 줄이 얼마나 지났는지 채워지는 가는 선 + 다음 줄(작게)
       지금 줄이 너무 길면 다음 줄을 빼고 화면 전체를 써요
       전주·간주: 큰 ♪, 다음 가사 3초 전부터 점 3개가 하나씩 꺼짐"""
     w, h = size
     tw = w - room
     cx = tw / 2
-    _, cur, nxt, frac, _ = lyric
+    _, cur, nxt, frac, _, lines = lyric
     small = h < 64
     show_next = not small and bool(nxt)
     area = LYRIC_AREA if show_next else h
     if cur:
-        got = fit_lyric(draw, cur, tw - 2, area, LYRIC_SIZES_FULL if small else LYRIC_SIZES)
+        sizes = LYRIC_SIZES_FULL if small else LYRIC_SIZES
+        top_size = base_size(draw, lines, tw - 2, area, sizes)  # 이 곡에서 쓰는 가장 큰 글씨
+        got = fit_lyric(draw, cur, tw - 2, area, tuple(x for x in sizes if x <= top_size))
         if got is None and show_next:  # 다음 줄을 빼면 들어감
             show_next, area = False, h
-            got = fit_lyric(draw, cur, tw - 2, area, LYRIC_SIZES_FULL)
+            got = fit_lyric(draw, cur, tw - 2, area, tuple(x for x in LYRIC_SIZES_FULL if x <= max(top_size, 12)))
         if got is None:  # 그래도 길면 제일 작은 글씨로 넣고 끝을 ..
             f, lh = lyric_font(12), 14
             rows = wrap(draw, cur, f, tw - 2, max(1, area // lh))
@@ -395,10 +440,39 @@ def song_ratio(now):
     dur = now.get("duration") or 0
     if not dur:
         return 0.0
-    pos = now.get("progress") or 0
-    if now.get("isPlaying") and now.get("_at"):
-        pos += (time.monotonic() - now["_at"]) * 1000
-    return max(0.0, min(1.0, pos / dur))
+    return max(0.0, min(1.0, play_pos(now) / dur))
+
+
+def page_bytes(image):
+    """1비트 그림 → SSD1306 메모리 모양 (8줄 묶음 × 칸, 한 바이트의 0번 비트 = 묶음의 맨 윗줄)"""
+    import numpy as np
+
+    a = np.asarray(image, dtype=np.uint8)
+    h, w = a.shape
+    a = a.reshape(h // 8, 8, w).astype(np.uint16)
+    return (a << np.arange(8, dtype=np.uint16)[None, :, None]).sum(axis=1).astype(np.uint8)
+
+
+def send_changed(device, image, before):
+    """지난번과 달라진 부분(8줄 묶음 × 칸 범위)만 OLED 로 보냄 → (지금 화면 메모리, 보낸 바이트 수)
+    한 화면을 통째로 보내면 I2C 로 0.1초 넘게 걸려서 위에서부터 그려지는 게 보여요 (특히 GPIO 로 만든 I2C 3·5).
+    진행 선 · 카운트다운 점처럼 조금 바뀔 땐 그 부분만 가서 바로 바뀌어요"""
+    import numpy as np
+
+    cur = page_bytes(device.preprocess(image))
+    if before is None or before.shape != cur.shape:
+        p0, p1, c0, c1 = 0, cur.shape[0] - 1, 0, cur.shape[1] - 1
+    else:
+        diff = cur != before
+        if not diff.any():
+            return cur, 0
+        rows, cols = np.flatnonzero(diff.any(axis=1)), np.flatnonzero(diff.any(axis=0))
+        p0, p1, c0, c1 = int(rows[0]), int(rows[-1]), int(cols[0]), int(cols[-1])
+    const, start = device._const, device._colstart
+    device.command(const.COLUMNADDR, start + c0, start + c1, const.PAGEADDR, p0, p1)
+    data = cur[p0:p1 + 1, c0:c1 + 1].tobytes()
+    device.data(list(data))
+    return cur, len(data)
 
 
 class Screen:
@@ -412,6 +486,8 @@ class Screen:
         self.key = None  # 마지막으로 그린 내용
         self.image = None  # 마지막으로 그린 그림 (PIL, 128 x height)
         self.shown = page  # 지금 보여주는 화면 (넘기기 중엔 바뀜)
+        self.sent = None  # OLED 에 지금 들어 있는 것 (바뀐 부분만 보내려고)
+        self.draw_ms = 100.0  # 화면 대부분을 보낼 때 걸리는 시간 (재서 맞춰 감) → 가사를 그만큼 먼저 그리기 시작
 
     @property
     def connected(self):
@@ -435,6 +511,7 @@ class Screen:
 
             device = ssd1306(i2c(port=self.bus, address=0x3C), height=self.height)
             self.key = None  # 처음부터 다시 그리게
+            self.sent = None
             self.device = device
             print(f"[OLED] {self.number}번 화면 연결됨 (I2C {self.bus}, {PAGE_NAMES.get(self.page)})", flush=True)
         except Exception:
@@ -446,10 +523,18 @@ class Screen:
         if not self.device:
             return
         try:
-            self.device.display(image)
+            t = time.monotonic()
+            try:
+                self.sent, n = send_changed(self.device, image, self.sent)
+            except (ImportError, AttributeError):  # numpy 가 없거나 luma 가 달라졌으면 통째로
+                self.device.display(image)
+                self.sent, n = None, 1024
+            if n >= 512:  # 화면 절반 넘게 (가사 줄이 바뀔 때처럼)
+                self.draw_ms = self.draw_ms * 0.7 + (time.monotonic() - t) * 1000 * 0.3
         except Exception as e:  # 선이 빠짐 → 나중에 다시 찾음
             print(f"[OLED] {self.number}번 화면 끊김 (I2C {self.bus}, {e.__class__.__name__})", flush=True)
             self.device = None
+            self.sent = None
 
 
 class Oled:
@@ -512,10 +597,12 @@ class Oled:
         song = song_ratio(now)
         clock = time.localtime()
         main = self._main()
-        for s in self.screens:
+        # 가사 화면부터 그림 (다른 화면을 그리는 0.1초 동안 가사가 늦어지지 않게)
+        for s in sorted(self.screens, key=lambda x: x.page != "lyrics"):
             # 넘기기 중엔: 꽂힌 그 하나(main)가 넘기고, 나머지(미리보기)는 맡은 화면 그대로
             page = page_now if rotating and s is main else s.page
-            lyric = lyric_lines(now) if page == "lyrics" else None
+            # 그리는 데 걸리는 시간의 절반만큼 더 먼저 → 화면이 다 그려지는 가운데쯤이 노래와 맞음
+            lyric = lyric_lines(now, LYRIC_LEAD + min(300.0, s.draw_ms) / 2) if page == "lyrics" else None
             if page == "lyrics" and lyric is None:
                 page = "status"  # 가사가 없으면 상태 화면
             s.shown = page

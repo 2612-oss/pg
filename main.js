@@ -2274,7 +2274,11 @@ function startGestureServer() {
         ? {
             id: currentTrack.id, // 곡이 바뀌면 OLED 가 /lyrics 로 가사를 새로 받아감
             title: currentTrack.title, artist: currentTrack.artist, isPlaying: currentTrack.isPlaying, genre: currentGenre,
-            progress: currentTrack.progress, duration: currentTrack.duration, // OLED 곡 진행 바용 (ms)
+            // OLED 곡 진행 바 · 가사용 (ms). Spotify 는 1.5초마다만 물어보니까 그 사이 흐른 시간을 더해 "지금" 위치로
+            progress: currentTrack.isPlaying && currentTrack.at
+              ? Math.min(currentTrack.duration || Infinity, currentTrack.progress + (Date.now() - currentTrack.at))
+              : currentTrack.progress,
+            duration: currentTrack.duration,
             mode: settings.mode, // OLED: DJ · 인식만 표시
           }
         : { genre: currentGenre, mode: settings.mode });
@@ -2423,6 +2427,7 @@ async function pollPlayer() {
     djTick(false, null);
     return POLL_MS;
   }
+  t.at = Date.now(); // progress 를 받은 시각 (/now 가 그 사이 흐른 시간을 더해서 보냄)
   checkGenreContext(t.context || null);
   tickSession(!!t.isPlaying, t.context || null, t);
   djTick(!!t.isPlaying, t);
@@ -2454,6 +2459,7 @@ async function poll() {
   const json = await res.json();
   checkGenreContext(json.context?.uri || null);
   const t = toTrack(json);
+  if (t) t.at = Date.now(); // progress 를 받은 시각 (/now 가 그 사이 흐른 시간을 더해서 보냄)
   tickSession(!!json.is_playing, json.context?.uri || null, t);
   djTick(!!json.is_playing, t);
   if (t) {
