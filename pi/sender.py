@@ -7,7 +7,8 @@ sender.py — 맥 노치 앱과 이야기하기 (HTTP)
   now(present)         → GET  http://맥:8899/now?present=1   (present: 지금 카메라에 사람이 보이는지)
                          {"title", "artist", "isPlaying", "genre", "progress", "duration"} — OLED 에 보여줄 정보
 
-맥 주소는 config.json 의 "mac". 맥 IP 가 바뀌면 거기만 고치면 돼요.
+맥 주소는 config.json 의 "mac". 몰라도 괜찮아요: 맥 노치 앱이 파이에 POST /api/mac 으로
+"나 여기 있어" 하고 20초마다 알려주면 그 주소(learn)를 써요 → 남의 파이도 설정 없이 연결돼요.
 보내기는 따로 스레드에서 해서, 네트워크가 느려도 카메라 인식이 멈추지 않아요.
 """
 
@@ -18,8 +19,24 @@ import urllib.request
 
 class MacClient:
     def __init__(self, base):
-        self.base = base.rstrip("/")
+        self.configured = (base or "").rstrip("/")
+        self.learned = None  # 맥 앱이 알려준 주소 (설정보다 먼저 씀 — 맥 IP 가 바뀌어도 따라감)
         self.last_result = None  # 마지막으로 보낸 결과 (OLED/로그용)
+
+    @property
+    def base(self):
+        if self.learned:
+            return self.learned
+        # "http://맥북IP:8899" 같은 자리표시는 못 씀 → 맥 앱이 알려줄 때까지 기다림
+        if not self.configured or not all(c.isascii() for c in self.configured):
+            return "http://127.0.0.1:8899"
+        return self.configured
+
+    def learn(self, ip, port=8899):
+        url = f"http://{ip}:{int(port)}"
+        if url != self.learned:
+            print(f"[맥 주소] {url} (맥 앱이 알려줌)", flush=True)
+        self.learned = url
 
     def send(self, name):
         threading.Thread(target=self._send, args=(name,), daemon=True).start()

@@ -675,10 +675,18 @@ function findGesture(name) {
 const GESTURE_COOLDOWN_MS = 1200; // 플랫폼마다 다르면 players/ 의 cooldown (유튜브는 영상 넘김이 느려서 더 김)
 const cooldownMs = () => (active !== 'spotify' && players[active].cooldown) || GESTURE_COOLDOWN_MS;
 let lastGestureAt = 0;
+let lastUnknownAt = 0;
 
 function handleGesture(name, source = 'camera') {
   const found = findGesture(name);
-  if (!found) return { ok: false, reason: `모르는 제스처: ${name}` };
+  if (!found) {
+    // 학습은 했는데 설정에서 장르·조작에 연결 안 한 동작 → 알려줌 (안 그러면 인식만 되고 아무 일도 없어 보임)
+    if (source !== 'menu' && Date.now() - lastUnknownAt > 8000) {
+      lastUnknownAt = Date.now();
+      notice(`'${name}' 동작은 아직 연결 안 됐어요 · 설정 → 제스처 학습에서 장르에 연결`);
+    }
+    return { ok: false, reason: `모르는 제스처: ${name}` };
+  }
   const now = Date.now();
   if (now - lastGestureAt < cooldownMs()) return { ok: false, reason: 'cooldown' };
   // 지금 듣고 있는 장르와 같은 장르 제스처면 무시 (곡이 갑자기 다른 플레이리스트로 바뀌지 않게)
@@ -697,8 +705,8 @@ function runGesture({ kind, item }, source) {
   const label = kind === 'genre' ? `${item.genre} 틀기` : CONTROL_ACTIONS[item.action];
   console.log(`[제스처] ${item.gesture} → ${label} (${source})`);
   broadcast('gesture', { name: item.gesture, kind, label, source, sound: settings.feedback.sound });
+  if (kind === 'genre') return playGenre(item); // Spotify 로그인 전이어도 → 못 틀면 유튜브로 대신
   if (!canUse()) return notice('먼저 Spotify에 로그인해 주세요');
-  if (kind === 'genre') return playGenre(item);
   return control(item.action);
 }
 
@@ -725,7 +733,12 @@ async function startPlayback(body) {
   if (res.status === 404) {
     const d = await spotifyApi('GET', '/me/player/devices');
     const device = d.ok ? (await d.json()).devices?.[0] : null;
-    if (!device) return notice('Spotify 앱을 먼저 켜 주세요'), false;
+    if (!device) {
+      // 기기 목록에 없어도 맥 앱이 켜져 있으면 앱에 직접 시킴
+      const uri = body?.context_uri || body?.uris?.[0];
+      if (uri && /^spotify:[a-z]+:[A-Za-z0-9]+$/.test(uri) && (await spotifyApp(`play track "${uri}"`))) return pollSoon(), true;
+      return notice('Spotify 앱을 먼저 켜 주세요'), false;
+    }
     res = await spotifyApi('PUT', `/me/player/play?device_id=${device.id}`, body);
   }
   if (res.status === 403) {
@@ -837,6 +850,7 @@ async function genrePool(g) {
 // Spotify: 그 장르 플리 후보 → 최근에 튼 건 빼고 (잘 맞는 · 단골일수록 잘 뽑히게) 하나 → 재생 (기획서 3번)
 // 틀었으면 { context, label }, 못 틀었으면 안내를 띄우고 null
 async function playGenreSpotify(g) {
+  if (!tokens) return null; // 로그인 전 → playGenre 가 유튜브로 대신
   if (g.playlist) return playMyPlaylist(g.playlist);
   let all;
   try {
@@ -1491,10 +1505,12 @@ async function playGenre(g, { auto = false, why = '', src = auto ? 'schedule' : 
     let via = platform();
     const other = g.query ? g : { ...g, query: g.playlist?.name || g.genre }; // 다른 플랫폼엔 내 Spotify 플리가 없으니 이름으로 검색
     let played = via === 'spotify' ? await playGenreSpotify(g) : await players[via].playGenre(other);
-    if (!played && ['apple', 'melon', 'ytmusic'].includes(via)) {
+    // 고른 플랫폼에서 못 틀면 (Spotify 무료·기기 없음, Apple 보관함에 없음, 멜론, YT Music 로그인 전) → 유튜브로
+    if (!played && via !== 'youtube') {
+      const from = via;
       played = await players.youtube.playGenre(other);
       if (played) {
-        if (via === 'ytmusic') played.label = 'YouTube (YouTube Music은 프리미엄 로그인 필요)';
+        played.label = `YouTube (${PLATFORMS[from]}에서 못 틀어서)`;
         via = 'youtube';
       }
     }
@@ -1671,6 +1687,7 @@ ipcMain.handle('pi:connect', async (_e, addr) => {
   fs.writeFileSync(file, JSON.stringify(c, null, 2) + '\n');
   if (settings.source !== 'pi') saveSettings({ ...settings, source: 'pi' });
   else broadcast('stream', streamUrl());
+  helloPi(); // 파이에게 이 맥 주소를 바로 알려줌
   let online = false;
   try { online = !!(await fetch(`http://${host}:8090/api/state`, { signal: AbortSignal.timeout(3000) })).ok; } catch {}
   return { ok: true, pi: c.pi, online };
@@ -2209,6 +2226,25 @@ function applySource() {
   if (settings.source === 'mac') startMacCamera();
   else stopMacCamera();
   broadcast('stream', streamUrl());
+  helloPi();
+}
+
+/* 라즈베리파이에게 "제스처는 이 맥으로 보내" 알려주기 (20초마다)
+   파이는 요청이 온 IP 를 맥 주소로 써요 → 파이 설정 파일에 맥 IP 를 안 적어도 되고, 맥 IP 가 바뀌어도 따라가요. */
+let helloTimer = null;
+async function helloPi() {
+  clearTimeout(helloTimer);
+  if (settings.source !== 'pi') return;
+  const base = piBase();
+  if (base) {
+    try {
+      await fetch(`${base}/api/mac`, {
+        method: 'POST', body: JSON.stringify({ port: loadConfig().gestureServer?.port || 8899 }),
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch {}
+  }
+  helloTimer = setTimeout(helloPi, 20000);
 }
 
 /* ---------- 라즈베리파이 켜기/끄기 ----------

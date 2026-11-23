@@ -95,6 +95,9 @@ class WebServer:
                 if self.path == "/api/oled":  # {"identify": 5} → 각 OLED 에 번호를 5초 띄움
                     web.app.oled.identify(float(data.get("identify", 5)))
                     return self.reply(200, {"ok": True})
+                if self.path == "/api/mac":  # 맥 노치 앱: "제스처는 나한테 보내" → 요청이 온 IP 를 맥 주소로
+                    web.app.mac.learn(self.client_address[0], data.get("port", 8899))
+                    return self.reply(200, {"ok": True, "mac": web.app.mac.base})
                 if self.path == "/api/delete":
                     return self.reply(200, web.app.delete(str(data.get("name", ""))))
                 self.reply(404, {"ok": False})
