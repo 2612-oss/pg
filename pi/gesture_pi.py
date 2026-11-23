@@ -45,6 +45,7 @@ from sender import MacClient
 from stabilize import Stabilizer
 from swipe import SwipeDetector, palm
 from web import WebServer
+import updater
 
 # 설정·모델·샘플을 두는 곳. 파이에선 이 폴더.
 # 맥 노치 앱이 "맥북 카메라"로 켤 땐 GESTURE_HOME 으로 다른 폴더를 알려줘요 (앱을 다시 만들어도 학습이 안 지워지게)
@@ -326,7 +327,9 @@ def main():
         exit_with_parent()
     ap = argparse.ArgumentParser()
     ap.add_argument("--debug", action="store_true", help="1초마다 상태 출력")
-    app = App(load_config(), debug=ap.parse_args().debug)
+    cfg = load_config()
+    updater.start(cfg)  # 깃허브에 새 버전이 있으면 스스로 바꾸고 다시 켬 (파이 서비스일 때만)
+    app = App(cfg, debug=ap.parse_args().debug)
     try:
         app.run()
     except KeyboardInterrupt:

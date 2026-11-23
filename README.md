@@ -32,6 +32,17 @@ curl -fsSL https://github.com/2612-oss/pg/releases/latest/download/install.sh | 
 
 </details>
 
+### 🍓 라즈베리파이 (웹캠 인식을 파이로 할 때)
+
+파이 터미널에 한 줄 — 처음 설치도, 예전 버전에서 넘어오는 것도 같은 줄이에요:
+
+```bash
+curl -fsSL https://github.com/2612-oss/pg/releases/latest/download/pi-install.sh | bash
+```
+
+그다음부터는 파이가 6시간마다 깃허브에서 새 버전을 확인해서 **스스로 업데이트**해요 (`pi/updater.py`, 설정·녹화·학습은 그대로).
+맥 앱에서는 설정 → 카메라 → 라즈베리파이 웹캠 → 주소(`사용자@파이IP`) → 연결.
+
 > Snaptune 은 Spotify 와 관계없는 개인 프로젝트예요. Spotify 는 Spotify AB 의 상표이고, 이 앱은 공개된 Spotify Web API 를 써요.
 > (예전 이름: Spotify Notch. 예전 앱의 로그인 · 설정 · 기록은 처음 켤 때 자동으로 옮겨 와요.)
 
