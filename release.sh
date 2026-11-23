@@ -16,11 +16,15 @@ gh auth status >/dev/null 2>&1 || { echo "깃허브 로그인이 필요해요: g
 NOTES="맥북 노치에 붙어서, 손짓 · 상황으로 음악을 틀어 주는 앱.
 
 **설치**: Snaptune.dmg 받기 → 열고 Snaptune 을 Applications 로 끌어다 놓기
-처음 열 때 \"열 수 없음\"이 뜨면 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기**
+처음 열 때 \"열리지 않음\"이 뜨면 → 완료 → 시스템 설정 → 개인정보 보호 및 보안 → 맨 아래 **그래도 열기**
+
+**경고 없이 한 줄로 설치**: 터미널에
+\`curl -fsSL https://github.com/2612-oss/pg/releases/latest/download/install.sh | bash\`
 (애플 실리콘 · macOS 13 이상. 자세한 건 dmg 안의 설치 안내.txt)"
 if gh release view "$VERSION" -R "$REPO" >/dev/null 2>&1; then
-  gh release upload "$VERSION" dist/Snaptune.dmg -R "$REPO" --clobber   # 같은 버전이면 파일만 바꿔치기
+  gh release upload "$VERSION" dist/Snaptune.dmg install.sh -R "$REPO" --clobber   # 같은 버전이면 파일만 바꿔치기
+  gh release edit "$VERSION" -R "$REPO" --notes "$NOTES"
 else
-  gh release create "$VERSION" dist/Snaptune.dmg -R "$REPO" --title "Snaptune ${VERSION#v}" --notes "$NOTES" --target main
+  gh release create "$VERSION" dist/Snaptune.dmg install.sh -R "$REPO" --title "Snaptune ${VERSION#v}" --notes "$NOTES" --target main
 fi
 echo "완료: https://github.com/$REPO/releases/latest/download/Snaptune.dmg"

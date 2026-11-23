@@ -23,7 +23,7 @@ EOF
 
 npx --yes @electron/packager@18 . "Snaptune" --platform=darwin --arch=arm64 --out="$OUT" --overwrite \
   --app-bundle-id=com.snaptune.app --icon=brand/icon.icns --extend-info="$OUT/extra.plist" \
-  --ignore='^/pi/(\.venv|models|data|__pycache__)($|/)' --ignore='^/banner($|/)' --ignore='^/case($|/)' --ignore='^/brand/make_icon\.py' --ignore='^/pi/config\.local\.json' --ignore='^/README' --ignore='^/(build-app|build-dist|release)\.sh' --ignore='^/dist($|/)' --ignore='^/설치 안내\.txt' --ignore='\.DS_Store'
+  --ignore='^/pi/(\.venv|models|data|__pycache__)($|/)' --ignore='^/banner($|/)' --ignore='^/case($|/)' --ignore='^/brand/make_icon\.py' --ignore='^/pi/config\.local\.json' --ignore='^/README' --ignore='^/(build-app|build-dist|release|install)\.sh' --ignore='^/dist($|/)' --ignore='^/설치 안내\.txt' --ignore='\.DS_Store'
 
 APP="$OUT/Snaptune-darwin-arm64/Snaptune.app"
 codesign --force --deep -s - "$APP"

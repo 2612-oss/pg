@@ -7,15 +7,19 @@ Snaptune 설치 안내
 
 1. 설치
 -------
-1) "Snaptune" 를 옆의 "Applications" 폴더로 끌어다 놓기
+1) "Snaptune" 을 옆의 "Applications" 폴더로 끌어다 놓기
 2) 응용 프로그램 폴더에서 Snaptune 더블클릭
+   → "“Snaptune”이(가) 열리지 않음" 이 떠요. [완료] 누르기
+     (애플 공증을 안 받은 앱이라 맥이 처음 한 번 막아요. 우클릭 → 열기로는 안 넘어가요)
+3) 시스템 설정 → 개인정보 보호 및 보안 → 맨 아래로 내리기
+   → "“Snaptune”이(가) 차단되었습니다" 옆 [그래도 열기] → 암호(또는 Touch ID) → [그래도 열기]
+   (2번을 하고 1시간 안에 해야 버튼이 보여요)
+4) 독에는 아이콘이 없어요. 노치에 붙은 작은 막대가 앱이에요. (노치에서 우클릭 → 설정…)
 
-   "확인되지 않은 개발자" / "열 수 없음" 이 뜨면 (앱스토어 앱이 아니라서 그래요)
-   → 시스템 설정 → 개인정보 보호 및 보안 → 맨 아래 "그래도 열기" → 다시 열기
-   그래도 안 되면 터미널에 이 한 줄:
-     xattr -cr "/Applications/Snaptune.app"
-
-3) 독에는 아이콘이 없어요. 노치에 붙은 작은 막대가 앱이에요. (노치에서 우클릭 → 설정…)
+   ▶ 이게 번거로우면 터미널에 이 한 줄이면 설치까지 끝나요 (경고창 없음):
+     curl -fsSL https://github.com/2612-oss/pg/releases/latest/download/install.sh | bash
+   ▶ 이미 Applications 에 넣었는데 안 열리면 터미널에:
+     xattr -dr com.apple.quarantine /Applications/Snaptune.app
 
 
 2. Spotify 연결
