@@ -12,6 +12,11 @@ oled.py — OLED(SSD1306, 128x64) 상태 표시 (기획서 4번)
   │▓▓▓░░░░░░ │   │          │      │          │
   └──────────┘   └──────────┘      └──────────┘
   가사는 맥 노치가 찾은 것(LRCLIB)을 /lyrics 로 받아서, 곡 진행 위치에 맞는 줄을 보여줘요.
+    · 지금 줄은 잘리지 않는 가장 큰 글씨(22 → 12px, 나눔스퀘어 굵게)로, 줄 길이를 고르게 나눠 가운데에
+    · 가는 선 = 지금 줄이 얼마나 지났는지 (채워진 만큼), 그 아래 다음 줄은 작게
+    · 지금 줄이 아주 길면 다음 줄을 빼고 화면 전체를 써요
+    · 전주·간주는 큰 ♪, 다음 가사 3초 전부터 점 3개가 하나씩 꺼져요 (언제 시작하는지 보이게)
+  곡 화면: 맥이 DJ 모드면 장르 칸에 "DJ 장르", 인식만 모드면 제스처 줄에 "인식만 > 동작"
 
   상태 (status)
   ┌──────────┐   ┌──────────┐      ┌──────────┐
@@ -59,8 +64,18 @@ FONTS = [  # 앞에서부터 있는 걸 씀
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/System/Library/Fonts/AppleSDGothicNeo.ttc",  # 맥 (화면 출력 확인용 그림)
 ]
+# 가사는 큰 글씨가 또렷한 나눔스퀘어 굵게를 먼저 (setup.sh 의 fonts-nanum 에 들어 있음)
+LYRIC_FONTS = [
+    "/usr/share/fonts/truetype/nanum/NanumSquareB.ttf",
+    "/usr/share/fonts/truetype/nanum/NanumSquareRoundB.ttf",
+] + FONTS
 FONT_SIZE = 12
 BIG_SIZE = 30  # 시계 숫자
+LYRIC_SIZES = (22, 19, 16, 14, 12)  # 지금 가사: 이 중 "잘리지 않고 들어가는 가장 큰 글씨"
+LYRIC_SIZES_FULL = (16, 14, 12)  # 다음 줄을 빼고 화면 전체를 써야 할 만큼 긴 줄
+NEXT_SIZE = 12  # 다음 가사 (작게)
+LYRIC_AREA = 48  # 다음 줄을 보여줄 때 지금 줄이 쓰는 높이 (그 아래: 진행 선 + 다음 줄)
+LYRIC_STEPS = 12  # 진행 선을 몇 칸으로 나눠 그릴지 (칸이 바뀔 때만 다시 그림)
 LINE = 14  # 한 줄 높이
 PAGES = ["song", "clock", "lyrics", "status"]  # 화면 종류 (lyrics 는 가사가 없으면 status 로 바뀜)
 ROTATE = ["song", "clock", "lyrics"]  # OLED 가 1개일 때 넘기는 순서
@@ -117,6 +132,9 @@ def render(draw, font, size, now, last, candidate, hold, song, room=0):
     w, h = size
     tw = w - room  # 글자를 쓸 수 있는 폭
     genre = now.get("genre") or "-"
+    mode = now.get("mode")  # 맥의 모드: normal / watch(인식만) / dj
+    if mode == "dj":
+        genre = f"DJ {genre}" if now.get("genre") else "DJ"
     playing = bool(now.get("isPlaying"))
 
     # 1줄: 장르 칸 (흰 바탕에 검은 글씨) + 재생 상태
@@ -148,7 +166,8 @@ def render(draw, font, size, now, last, candidate, hold, song, room=0):
     elif small:
         draw.text((0, y), fit(draw, now.get("title") or "", font, tw), font=font, fill="white")
     else:
-        draw.text((0, y), fit(draw, f"> {last}" if last else "> -", font, tw), font=font, fill="white")
+        mark = "인식만 > " if mode == "watch" else "> "  # 인식만 모드: 알아보기만 하고 맥이 조작은 안 함
+        draw.text((0, y), fit(draw, f"{mark}{last or '-'}", font, tw), font=font, fill="white")
 
     # 맨 아래: 곡 진행 바
     top = h - (2 if small else 5)
@@ -197,10 +216,29 @@ def render_status(draw, font, size, info, room=0):
         draw.text((34, y), fit(draw, value, font, tw - 34), font=font, fill="white")
 
 
-def wrap(draw, text, font, width, rows):
-    """긴 가사를 width 에 맞춰 여러 줄로 (띄어쓰기에서 먼저 자름). 줄이 rows 개를 넘으면 마지막 줄 끝을 .."""
-    out, line = [], ""
-    for word in text.split(" "):
+_lyric_fonts = {}
+
+
+def lyric_font(size):
+    """가사용 글꼴 (크기별로 한 번만 불러옴)"""
+    if size not in _lyric_fonts:
+        from PIL import ImageFont
+
+        for path in LYRIC_FONTS:
+            try:
+                _lyric_fonts[size] = ImageFont.truetype(path, size)
+                break
+            except OSError:
+                pass
+        else:
+            _lyric_fonts[size] = ImageFont.load_default()
+    return _lyric_fonts[size]
+
+
+def greedy(draw, text, font, width):
+    """띄어쓰기에서 끊어 width 에 맞춰 여러 줄로. (줄들, 한 단어를 글자 단위로 잘랐는지)"""
+    out, line, split = [], "", False
+    for word in text.split():
         test = f"{line} {word}" if line else word
         if draw.textlength(test, font=font) <= width:
             line = test
@@ -213,17 +251,51 @@ def wrap(draw, text, font, width, rows):
                 cut -= 1
             out.append(word[:cut])
             word = word[cut:]
+            split = True
         line = word
     if line:
         out.append(line)
+    return out, split
+
+
+def balanced(draw, text, font, width):
+    """greedy 와 줄 수는 같게, 대신 줄 길이를 고르게 (가운데 정렬했을 때 윗줄만 길고 아랫줄에 한 단어만 남지 않게)"""
+    rows, split = greedy(draw, text, font, width)
+    if len(rows) < 2 or split:
+        return rows, split
+    lo, hi = 1, int(width)
+    while lo < hi:  # 줄 수가 늘지 않는 가장 좁은 폭
+        mid = (lo + hi) // 2
+        r, sp = greedy(draw, text, font, mid)
+        if len(r) <= len(rows) and not sp:
+            hi = mid
+        else:
+            lo = mid + 1
+    return greedy(draw, text, font, hi)
+
+
+def wrap(draw, text, font, width, rows):
+    """긴 가사를 width 에 맞춰 여러 줄로. 줄이 rows 개를 넘으면 마지막 줄 끝을 .."""
+    out, _ = balanced(draw, text, font, width)
     if len(out) > rows:
         out = out[:rows - 1] + [fit(draw, " ".join(out[rows - 1:]), font, width)]
     return out
 
 
+def fit_lyric(draw, text, width, area, sizes):
+    """잘리지 않고 area 높이에 들어가는 가장 큰 글씨: (글꼴, 줄들, 줄 높이) 또는 None"""
+    for size in sizes:
+        font = lyric_font(size)
+        lh = size + 2
+        rows, split = balanced(draw, text, font, width)
+        if len(rows) * lh <= area + 2 and not split:
+            return font, rows, lh
+    return None
+
+
 def lyric_lines(now):
-    """가사가 있으면 (지금 줄 번호, 지금 줄, 다음 줄). 없으면 None
-    줄 번호 -1 = 첫 가사 전 (전주)"""
+    """가사가 있으면 (지금 줄 번호, 지금 줄, 다음 줄, 지금 줄이 지난 정도 0~1, 다음 가사까지 ms). 없으면 None
+    줄 번호 -1 = 첫 가사 전 (전주). 다음 가사까지 ms 는 다음 가사가 없으면 None"""
     lines = now.get("_lyrics")
     if not lines:
         return None
@@ -234,24 +306,79 @@ def lyric_lines(now):
     while i + 1 < len(lines) and lines[i + 1]["t"] <= pos:
         i += 1
     cur = lines[i]["text"] if i >= 0 else ""
-    nxt = next((l["text"] for l in lines[i + 1:] if l["text"]), "")
-    return i, cur, nxt
+    k = next((k for k in range(i + 1, len(lines)) if lines[k]["text"]), None)  # 다음 "글자가 있는" 줄
+    nxt = lines[k]["text"] if k is not None else ""
+    start = lines[i]["t"] if i >= 0 else 0
+    end = lines[i + 1]["t"] if i + 1 < len(lines) else max(start + 4000, now.get("duration") or 0)
+    frac = max(0.0, min(1.0, (pos - start) / max(1, end - start))) if i >= 0 else 0.0
+    wait = lines[k]["t"] - pos if k is not None else None
+    return i, cur, nxt, frac, wait
+
+
+def lyric_countdown(lyric):
+    """전주·간주 끝 3초: 3 → 2 → 1 (그 밖엔 0)"""
+    _, cur, _, _, wait = lyric
+    if cur or wait is None or wait > 3000:
+        return 0
+    return max(1, min(3, int(wait // 1000) + 1))
+
+
+def lyric_key(lyric, small):
+    """가사 화면이 바뀌었는지 볼 값 (줄 · 진행 선 칸 · 카운트다운이 바뀔 때만 다시 그림)"""
+    i, cur, nxt, frac, _ = lyric
+    step = int(frac * LYRIC_STEPS) if cur and nxt and not small else 0
+    return i, step, lyric_countdown(lyric)
 
 
 def render_lyrics(draw, font, size, lyric, room=0):
-    """가사 화면: 지금 줄(최대 3줄로 접음) + 가는 선 + 다음 줄"""
+    """가사 화면
+      지금 줄: 잘리지 않는 가장 큰 글씨(22 → 12px)로, 줄 길이를 고르게 나눠 가운데 정렬
+      그 아래: 지금 줄이 얼마나 지났는지 채워지는 가는 선 + 다음 줄(작게)
+      지금 줄이 너무 길면 다음 줄을 빼고 화면 전체를 써요
+      전주·간주: 큰 ♪, 다음 가사 3초 전부터 점 3개가 하나씩 꺼짐"""
     w, h = size
     tw = w - room
-    _, cur, nxt = lyric
+    cx = tw / 2
+    _, cur, nxt, frac, _ = lyric
     small = h < 64
-    rows = wrap(draw, cur, font, tw, 2 if small else 3) if cur else ["♪"]
-    top = 0 if small else max(0, (42 - len(rows) * LINE) // 2)  # 위쪽 42px 가운데쯤
-    for k, row in enumerate(rows):
-        draw.text((0, top + k * LINE), row, font=font, fill="white")
-    if not small and nxt:
-        for x in range(0, tw, 3):  # 점선
-            draw.point((x, 46), fill="white")
-        draw.text((0, 50), fit(draw, nxt, font, tw), font=font, fill="white")
+    show_next = not small and bool(nxt)
+    area = LYRIC_AREA if show_next else h
+    if cur:
+        got = fit_lyric(draw, cur, tw - 2, area, LYRIC_SIZES_FULL if small else LYRIC_SIZES)
+        if got is None and show_next:  # 다음 줄을 빼면 들어감
+            show_next, area = False, h
+            got = fit_lyric(draw, cur, tw - 2, area, LYRIC_SIZES_FULL)
+        if got is None:  # 그래도 길면 제일 작은 글씨로 넣고 끝을 ..
+            f, lh = lyric_font(12), 14
+            rows = wrap(draw, cur, f, tw - 2, max(1, area // lh))
+        else:
+            f, rows, lh = got
+        top = (area - len(rows) * lh) / 2
+        for k, row in enumerate(rows):
+            draw.text((cx, top + k * lh + lh / 2), row, font=f, fill="white", anchor="mm")
+    else:
+        count = lyric_countdown(lyric)
+        note = lyric_font(26 if not small else 18)
+        y = area / 2 - (5 if count and not small else 0)
+        draw.text((cx, y), "♪", font=note, fill="white", anchor="mm")
+        if count and not small:
+            for k in range(3):
+                x = cx - 12 + k * 12
+                box = (x - 2, y + 14, x + 2, y + 18)
+                if k < count:
+                    draw.ellipse(box, fill="white")
+                else:
+                    draw.ellipse(box, outline="white")
+    if show_next:
+        x0, x1, y = 10, tw - 11, LYRIC_AREA + 1
+        for x in range(x0, x1 + 1, 2):  # 점선 = 남은 시간, 채운 선 = 지난 시간
+            draw.point((x, y), fill="white")
+        if cur:
+            fill_to = x0 + int((x1 - x0) * int(frac * LYRIC_STEPS) / LYRIC_STEPS)
+            if fill_to > x0:
+                draw.line((x0, y, fill_to, y), fill="white")
+        nf = lyric_font(NEXT_SIZE)
+        draw.text((cx, (LYRIC_AREA + 3 + h) / 2 + 1), fit(draw, nxt, nf, tw - 2), font=nf, fill="white", anchor="mm")
 
 
 def render_identify(draw, big, font, size, number, bus, page):
@@ -399,12 +526,12 @@ class Oled:
             if identify:
                 key = ("identify", s.number)
             elif page == "song":
-                key = (page, now.get("genre"), now.get("title"), now.get("artist"), bool(now.get("isPlaying")),
+                key = (page, now.get("genre"), now.get("mode"), now.get("title"), now.get("artist"), bool(now.get("isPlaying")),
                        last, candidate if hold > 0 else None, round(hold * 16), int(song * w))
             elif page == "clock":
                 key = (page, clock.tm_hour, clock.tm_min, clock.tm_mday, now.get("title"), bool(now.get("isPlaying")))
             elif page == "lyrics":
-                key = (page, now.get("id"), lyric[0])
+                key = (page, now.get("id"), lyric_key(lyric, h < 64))
             else:
                 key = (page, round(info.get("temp") or 0), info.get("fan"), round(info.get("fps", 0)), bool(info.get("present")))
             key = (key, dots and self.page, s.connected)

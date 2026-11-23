@@ -447,7 +447,8 @@ async function control(action) {
   // 'toggle' 은 지금 상태를 보고 play / pause 중 하나로 바꿈 (제스처 하나로 재생/정지)
   // 멜론처럼 지금 상태를 모르는 플랫폼은 ⏯ 하나로 (상태를 짐작해서 틀리게 누르지 않게)
   if (action === 'toggle' && !(active !== 'spotify' && players[active].nativeToggle)) action = currentTrack?.isPlaying ? 'pause' : 'play';
-  if (action === 'auto') return playAuto(); // 어느 플랫폼이든 (장르 재생과 같은 길)
+  // 어느 플랫폼이든 (장르 재생과 같은 길). DJ 가 틀고 있을 때 "알아서 틀기" = 다른 장르로 다시 골라 줘
+  if (action === 'auto') return settings.mode === 'dj' && djOwns() ? djPick('다른 장르로', { exclude: currentGenre, byUser: true }) : playAuto();
   if (action === 'other_playlist') return otherPlaylist();
   // Spotify 가 아니면 그 플랫폼 담당(players/)에게 넘김
   if (active !== 'spotify') {
@@ -554,6 +555,13 @@ const CONTROL_ACTIONS = {
   auto: '알아서 틀기', // 상황 엔진: 지금 상황(시간·요일·날씨·워치)과 배운 기록으로 장르를 골라 틀기
 };
 
+// 모드 (우클릭 메뉴 · 설정 맨 위에서 바꿈)
+//   보통   : 제스처로 바로 조작
+//   인식만 : 제스처를 알아보기만 하고 조작은 안 함 → 노치에 "인식만 · 다음 곡"처럼 뭘 했을지만 보여줌 (연습 · 발표 중)
+//   DJ     : 상황 엔진이 고른 장르만 계속 틀어요 (아래 "DJ 모드")
+const MODES = { normal: '보통', watch: '인식만', dj: 'DJ' };
+const MODE_HELP = { normal: '제스처로 바로 조작', watch: '제스처를 알아보기만 하고 조작은 안 함', dj: '상황 엔진이 고른 노래만 계속 틀기' };
+
 const DEFAULT_GENRES = [
   { genre: '락', gesture: 'rock', query: 'rock' },
   { genre: '팝', gesture: 'pop', query: 'pop hits' },
@@ -635,6 +643,7 @@ function cleanSettings(s) {
       ical: /^(https|webcal):\/\//i.test(str(s.situation?.ical)) ? str(s.situation.ical).slice(0, 600) : '', // 캘린더 iCal 주소 (선택)
       apps: s.situation?.apps !== false, // 지금 쓰는 앱 종류 보기 (기본 켜짐, 종류만 씀)
     },
+    mode: MODES[s.mode] ? s.mode : 'normal', // 보통 / 인식만 / DJ (settings.html readAll 도 맨 끝에 같은 순서로)
   };
 }
 
@@ -689,6 +698,8 @@ let lastUnknownAt = 0;
 
 function handleGesture(name, source = 'camera') {
   const found = findGesture(name);
+  // 인식만 모드: 뭘 했을지 노치에만 보여주고 조작은 안 함 (우클릭 "제스처 테스트"는 그대로 조작)
+  if (settings.mode === 'watch' && source !== 'menu') return watchGesture(name, found, source);
   if (!found) {
     // 학습은 했는데 설정에서 장르·조작에 연결 안 한 동작 → 알려줌 (안 그러면 인식만 되고 아무 일도 없어 보임)
     if (source !== 'menu' && Date.now() - lastUnknownAt > 8000) {
@@ -699,6 +710,12 @@ function handleGesture(name, source = 'camera') {
   }
   const now = Date.now();
   if (now - lastGestureAt < cooldownMs()) return { ok: false, reason: 'cooldown' };
+  // DJ 모드: 장르는 엔진만 골라요 → 장르 제스처는 알려주기만 (넘김 · 좋아요 · 볼륨 · 멈춤은 그대로)
+  if (settings.mode === 'dj' && found.kind === 'genre' && source !== 'menu') {
+    lastGestureAt = now;
+    broadcast('gesture', { name, kind: 'ignored', label: 'DJ 모드 · 장르는 엔진이 골라요', source, sound: settings.feedback.sound });
+    return { ok: false, reason: 'dj' };
+  }
   // 지금 듣고 있는 장르와 같은 장르 제스처면 무시 (곡이 갑자기 다른 플레이리스트로 바뀌지 않게)
   if (found.kind === 'genre' && found.item.genre === currentGenre && currentTrack?.isPlaying) {
     console.log(`[제스처] ${name} → 이미 ${currentGenre} 재생 중이라 무시`);
@@ -711,12 +728,24 @@ function handleGesture(name, source = 'camera') {
   return { ok: true, kind: found.kind, ...(found.kind === 'genre' ? { genre: found.item.genre } : { action: found.item.action }) };
 }
 
+// 인식만 모드: 같은 쿨다운으로 (손을 내리는 동작까지 두 번 뜨지 않게) "무엇을 했을지"만 알려줌
+let lastWatchAt = 0;
+function watchGesture(name, found, source) {
+  const now = Date.now();
+  if (now - lastWatchAt < cooldownMs()) return { ok: false, reason: 'cooldown' };
+  lastWatchAt = now;
+  const would = !found ? null : found.kind === 'genre' ? `${found.item.genre} 틀기` : CONTROL_ACTIONS[found.item.action];
+  console.log(`[인식만] ${name} → ${would || '연결 안 된 동작'} (조작 안 함)`);
+  broadcast('gesture', { name, kind: 'ignored', label: `인식만 · ${would || `${name} (연결 안 됨)`}`, source, sound: settings.feedback.sound });
+  return { ok: false, reason: 'watch', would };
+}
+
 function runGesture({ kind, item }, source) {
   const label = kind === 'genre' ? `${item.genre} 틀기` : CONTROL_ACTIONS[item.action];
   console.log(`[제스처] ${item.gesture} → ${label} (${source})`);
   broadcast('gesture', { name: item.gesture, kind, label, source, sound: settings.feedback.sound });
   if (kind === 'genre') return playGenre(item); // Spotify 로그인 전이어도 → 못 틀면 유튜브로 대신
-  if (!canUse()) return notice('먼저 Spotify에 로그인해 주세요');
+  if (!canUse() && item.action !== 'auto') return notice('먼저 Spotify에 로그인해 주세요'); // 알아서 틀기는 장르 재생처럼 못 틀면 유튜브로
   return control(item.action);
 }
 
@@ -1649,18 +1678,109 @@ function rankGenres(now = situationNow(), draws = 400) {
 }
 
 // 위 확률대로 하나 뽑음 → 그 확률(p)을 그대로 기록에 남길 수 있음
-function chooseGenre(now) {
-  const list = rankGenres(now);
+// exclude: 이 장르는 빼고 (나머지 확률을 다시 100%로 맞춤 → p 도 실제로 뽑힌 확률 그대로)
+function chooseGenre(now, exclude = null) {
+  let list = rankGenres(now);
+  if (exclude && list.length > 1) {
+    const rest = list.filter((x) => x.item.genre !== exclude);
+    const sum = rest.reduce((a, x) => a + x.chance, 0) || 1;
+    list = rest.map((x) => ({ ...x, chance: x.chance / sum }));
+  }
   let r = Math.random();
   return list.find((x) => (r -= x.chance) <= 0) || list[list.length - 1] || null;
 }
 
-async function playAuto() {
+// byUser: 사람이 시킨 것 (앞 플리를 금방 바꾼 거면 "별로"로 침) / keepSame: 같은 장르가 또 뽑히면 플리를 안 바꿈 (DJ)
+async function playAuto({ why = '알아서 ·', exclude = null, byUser = true, keepSame = false } = {}) {
   const now = situationNow();
-  const pick = chooseGenre(now);
+  const pick = chooseGenre(now, exclude);
   if (!pick) return notice('설정에서 장르를 먼저 만들어 주세요');
-  console.log(`[상황] ${sitLabel(now)} → ${pick.item.genre} (${Math.round(pick.chance * 100)}% · ${pick.why.join(', ') || '그냥'})`);
-  return playGenre(pick.item, { why: '알아서 ·', src: 'auto', p: pick.chance });
+  Object.assign(dj, { genre: pick.item.genre, sit: djSit(now), at: Date.now(), skips: [], endedAt: 0, settleUntil: Date.now() + 15000 });
+  console.log(`[상황] ${sitLabel(now)} → ${pick.item.genre} (${Math.round(pick.chance * 100)}% · ${pick.why.join(', ') || '그냥'})${why.startsWith('DJ') ? ` [${why}]` : ''}`);
+  if (keepSame && pick.item.genre === currentGenre) return; // 상황이 바뀌었어도 엔진이 지금 장르가 맞대요 → 그대로
+  return playGenre(pick.item, { auto: !byUser, why, src: 'auto', p: pick.chance });
+}
+
+/* ---------- DJ 모드 ----------
+   상황 엔진이 고른 장르만 계속 틀어요. 노래 중간엔 안 끊고, 곡이 바뀌는 순간에만 다시 골라요.
+     · 엔진이 고르지 않은 걸 듣고 있으면 (DJ 를 막 켰거나, 앱에서 직접 틀었으면) → 이 곡 다음부터 엔진이
+     · 4분 안에 3곡을 금방(1분 · 절반 전에) 넘겼으면 → 안 맞는 거니까 다른 장르로
+     · 한 장르를 40분 넘게 틀었고 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨 · 몸 상태)이 바뀌었으면 → 다시 골라요
+     · 한 장르를 90분 넘게 틀었으면 → 질렸을 테니 다른 장르로
+     · 플리가 끝나서 멈추면 → 이어서 골라요
+   곡 중간에 멈추면(제스처든 앱이든 자리 비움이든) 누가 멈춘 거니까 그대로 둬요. 다시 틀면 이어서 DJ.
+   앱을 켤 때 조용하면 먼저 틀지 않아요 (재생하거나 "알아서 틀기"를 하면 시작).
+   장르 제스처 · 시간대별 장르는 안 써요. 넘김 · 좋아요 · 볼륨 · 멈춤은 그대로 → 엔진이 배우는 점수가 돼요 */
+const DJ_STAY_MS = 40 * 60000;
+const DJ_MAX_MS = 90 * 60000;
+const DJ_SKIPS = 3;
+const DJ_SKIP_WINDOW_MS = 4 * 60000;
+const dj = { genre: null, sit: null, at: 0, skips: [], settleUntil: 0, endedAt: 0, picking: false, trackId: null, prog: 0, dur: 0, playing: false };
+// "상황이 바뀌었나" 볼 값 (시각은 아침·낮·저녁·밤 4칸으로 크게)
+const djSit = (x) => [x.day, TIME_GROUP[x.time], x.weather || '-', x.activity || '-', x.app || '-', x.cal || '-', x.people || '-'].join('|');
+const djOwns = () => !!currentGenre && currentGenre === dj.genre; // 지금 나오는 게 엔진이 고른 장르인지
+
+async function djPick(why, { exclude = null, byUser = false } = {}) {
+  if (dj.picking) return;
+  dj.picking = true;
+  try {
+    await playAuto({ why: why ? `DJ · ${why} ·` : 'DJ ·', exclude, byUser, keepSame: !exclude && djOwns() });
+  } finally {
+    dj.picking = false;
+  }
+}
+
+// 곡이 바뀐 순간: 다시 고를 까닭이 있으면 { why, exclude, byUser }
+function djReason() {
+  if (dj.skips.length >= DJ_SKIPS) return { why: '자꾸 넘겨서', exclude: currentGenre, byUser: true };
+  if (!djOwns()) return { why: '', byUser: false };
+  const long = Date.now() - dj.at;
+  if (long >= DJ_MAX_MS) return { why: `${currentGenre} 오래 들어서`, exclude: currentGenre, byUser: false };
+  if (long >= DJ_STAY_MS && djSit(situationNow()) !== dj.sit) return { why: '상황이 바뀌어서', byUser: false };
+  return null;
+}
+
+// 폴링마다 (어느 플랫폼이든). track 이 null 이면 아무것도 안 나오는 중
+function djTick(isPlaying, track) {
+  const now = Date.now();
+  const prev = { id: dj.trackId, prog: dj.prog, dur: dj.dur, playing: dj.playing };
+  if (track?.id && track.id !== 'yt:ad') Object.assign(dj, { trackId: track.id, prog: track.progress || 0, dur: track.duration || 0 });
+  dj.playing = isPlaying;
+  if (settings.mode !== 'dj' || dj.picking || now < dj.settleUntil) return;
+  if (prev.playing && !isPlaying) {
+    // 곡 끝 무렵에 멈췄고, 곡이 넘어갔거나(처음 곡으로 · 없음) 끝까지 갔으면 → 플리가 끝남. 곡 중간이면 → 누가 멈춤
+    const nearEnd = prev.dur > 0 && (prev.dur - prev.prog < 15000 || prev.prog >= prev.dur * 0.95);
+    const finished = !track?.id || track.id !== prev.id || (track.progress || 0) + 5000 < prev.prog
+      || (track.duration > 0 && track.duration - (track.progress || 0) < 2000);
+    dj.endedAt = nearEnd && finished ? now : 0;
+  }
+  if (isPlaying) dj.endedAt = 0;
+  if (!isPlaying) {
+    if (dj.endedAt && now - dj.endedAt > 4000 && !autoPaused) djPick('플리가 끝나서');
+    return;
+  }
+  if (!prev.id || !track?.id || track.id === prev.id || track.id === 'yt:ad') return; // 곡이 바뀌는 순간에만
+  if (prev.prog < Math.min(60000, prev.dur * 0.5)) dj.skips.push(now); // 금방 넘김
+  dj.skips = dj.skips.filter((t) => now - t < DJ_SKIP_WINDOW_MS);
+  const r = djReason();
+  if (r) djPick(r.why, r);
+}
+
+// 모드 바꾸기 (우클릭 메뉴 · 설정 맨 위). 설정 창의 "저장"은 모드를 안 건드려요 (창이 열린 사이 메뉴로 바꾼 걸 되돌리지 않게)
+function setMode(mode) {
+  if (!MODES[mode] || settings.mode === mode) return settings;
+  saveSettings({ ...settings, mode });
+  console.log(`[모드] ${MODES[mode]}`);
+  broadcast('mode', mode);
+  if (mode === 'watch') notice('인식만 모드 · 제스처를 알아보기만 하고 조작은 안 해요');
+  else if (mode === 'normal') notice('보통 모드 · 제스처로 바로 조작해요');
+  else if (!currentTrack?.isPlaying) djPick('시작');
+  else notice(djOwns() ? 'DJ 모드 · 지금 장르부터 이어 가요' : 'DJ 모드 · 이 곡이 끝나면 엔진이 고른 걸로 이어 가요');
+  if (mode === 'dj') {
+    dj.skips = [];
+    if (!dj.at) dj.at = Date.now();
+  }
+  return settings;
 }
 
 // 최근 30일 지표: 알아서 틀기 / 직접 고른 것 따로
@@ -1898,8 +2018,8 @@ async function comeBack() {
   if (!settings.away.on || currentTrack?.isPlaying) return;
   console.log('[자리] 돌아옴 → 이어서 재생');
   const slot = currentSlot();
-  // 자리를 비운 사이 시간대가 바뀌었으면 그 장르로, 아니면 듣던 걸 이어서
-  if (slot && slotKey !== keyOf(slot)) {
+  // 자리를 비운 사이 시간대가 바뀌었으면 그 장르로, 아니면 듣던 걸 이어서 (DJ 모드는 엔진만 고르니까 이어서)
+  if (slot && slotKey !== keyOf(slot) && settings.mode !== 'dj') {
     slotKey = keyOf(slot);
     return playGenre(slot.item, { auto: true });
   }
@@ -1938,7 +2058,7 @@ function checkSchedule(justSaved = false) {
   const first = slotKey === null && !justSaved; // 앱을 막 켰을 땐 바꾸지 않고 기억만
   if (autoPaused) return; // 자리 비운 중 → 돌아왔을 때(comeBack) 반영
   slotKey = key;
-  if (!slot || first || !canUse() || !currentTrack?.isPlaying || currentGenre === slot.genre) return;
+  if (!slot || first || settings.mode === 'dj' || !canUse() || !currentTrack?.isPlaying || currentGenre === slot.genre) return;
   console.log(`[시간대] ${slot.from} → ${slot.genre}`);
   playGenre(slot.item, { auto: true });
 }
@@ -2016,7 +2136,7 @@ ipcMain.handle('auto:export-prior', async () => {
 });
 
 ipcMain.handle('settings:get', () => ({
-  settings, actions: CONTROL_ACTIONS, platforms: PLATFORMS, sources: SOURCES,
+  settings, actions: CONTROL_ACTIONS, platforms: PLATFORMS, sources: SOURCES, modes: MODES,
   piStream: streamUrl(), // 지금 고른 카메라의 영상 주소 (파이 또는 맥북)
   hasPi: !!loadConfig().pi,
   gestureHelp: gestureHelp(), // 플랫폼마다 제스처가 하는 일
@@ -2088,14 +2208,15 @@ ipcMain.handle('pi:import', async () => {
   } catch {}
   return { ok: true };
 });
-ipcMain.handle('settings:save', (_e, next) => saveSettings(next));
+ipcMain.handle('settings:save', (_e, next) => saveSettings({ ...next, mode: settings.mode })); // 모드는 setMode 로만
+ipcMain.handle('settings:mode', (_e, mode) => setMode(mode));
 ipcMain.handle('spotify:playlists', () => myPlaylists());
 ipcMain.handle('fav:list', () => favoritesSummary());
 ipcMain.handle('auto:report', async (_e, { refresh } = {}) => {
   if (refresh) await refreshWeather(true);
   return situationReport();
 });
-ipcMain.handle('auto:play', () => { playAuto(); return { ok: true }; });
+ipcMain.handle('auto:play', () => { control('auto'); return { ok: true }; });
 // 상황 기록 지우기: { key, genre } 하나 또는 {} 전부
 ipcMain.handle('auto:forget', (_e, x = {}) => {
   forgetHistory(x);
@@ -2154,8 +2275,9 @@ function startGestureServer() {
             id: currentTrack.id, // 곡이 바뀌면 OLED 가 /lyrics 로 가사를 새로 받아감
             title: currentTrack.title, artist: currentTrack.artist, isPlaying: currentTrack.isPlaying, genre: currentGenre,
             progress: currentTrack.progress, duration: currentTrack.duration, // OLED 곡 진행 바용 (ms)
+            mode: settings.mode, // OLED: DJ · 인식만 표시
           }
-        : { genre: currentGenre });
+        : { genre: currentGenre, mode: settings.mode });
     }
     // 지금 곡의 가사 (OLED 가사 화면용). ready: 가사 찾기가 끝났는지 (false 면 조금 뒤 다시 물어봄)
     //   { id, ready, lines: [{ t: 시작 ms, text }] 또는 null (가사 없음) }
@@ -2173,7 +2295,7 @@ function startGestureServer() {
           if (Date.now() - lastGestureAt < GESTURE_COOLDOWN_MS) return json(res, 200, { ok: false, reason: 'cooldown' });
           lastGestureAt = Date.now();
           broadcast('gesture', { name: 'auto', kind: 'control', label: CONTROL_ACTIONS.auto, source: 'http', sound: settings.feedback.sound });
-          playAuto();
+          control('auto');
           return json(res, 200, { ok: true });
         }
         let j = {};
@@ -2298,10 +2420,12 @@ async function pollPlayer() {
   if (!t) {
     currentTrack = null;
     broadcast('track', null);
+    djTick(false, null);
     return POLL_MS;
   }
   checkGenreContext(t.context || null);
   tickSession(!!t.isPlaying, t.context || null, t);
+  djTick(!!t.isPlaying, t);
   const isNew = t.id !== lastTrackId;
   t.accent = await accentOf(t.image);
   currentTrack = t;
@@ -2323,6 +2447,7 @@ async function poll() {
   if (res.status === 204 || !res.ok) {
     currentTrack = null;
     broadcast('track', null);
+    if (res.status === 204) djTick(false, null); // 아무것도 안 나옴 (잠깐 안 되는 것(5xx)은 빼고)
     return POLL_MS * 2;
   }
 
@@ -2330,6 +2455,7 @@ async function poll() {
   checkGenreContext(json.context?.uri || null);
   const t = toTrack(json);
   tickSession(!!json.is_playing, json.context?.uri || null, t);
+  djTick(!!json.is_playing, t);
   if (t) {
     const isNew = t.id !== lastTrackId;
     if (isNew) likedCache.delete(t.uri); // Spotify 앱에서 바꿨을 수도 있으니 곡마다 새로 확인
@@ -2631,6 +2757,13 @@ ipcMain.on('context-menu', async () => {
   Menu.buildFromTemplate([
     { label: '곡 미리보기', enabled: !!currentTrack, click: peek },
     {
+      // 보통 / 인식만 / DJ
+      label: `모드 (${MODES[settings.mode]})`,
+      submenu: Object.entries(MODES).map(([id, name]) => ({
+        label: `${name} — ${MODE_HELP[id]}`, type: 'radio', checked: settings.mode === id, click: () => setMode(id),
+      })),
+    },
+    {
       // 제스처를 알아볼 카메라: 라즈베리파이 웹캠 / 맥북 카메라 / 끄기
       label: `카메라 (${SOURCES[settings.source]}${macSetup ? ' · 설치 중' : ''})`,
       submenu: Object.entries(SOURCES).map(([id, name]) => ({
@@ -2665,7 +2798,7 @@ ipcMain.on('context-menu', async () => {
     ...(active !== platform()
       ? [{ label: `${PLATFORMS[platform()]} 조작으로 돌아가기`, click: () => { setActive(platform()); currentGenre = genreContext = null; broadcast('genre', null); pollSoon(); } }]
       : []),
-    { label: '알아서 틀기 (상황 엔진)', click: () => playAuto() },
+    { label: '알아서 틀기 (상황 엔진)', click: () => control('auto') },
     ...(currentGenre && settings.genres.some((g) => g.genre === currentGenre && !g.playlist)
       ? [{ label: `${currentGenre} 다른 플리로`, click: () => otherPlaylist() }]
       : []),

@@ -196,6 +196,12 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   <h1>설정</h1>
   <div class="sub">제스처마다 틀 장르와 재생 조작을 정해요. 저장하면 바로 적용돼요.</div>
 
+  <!-- 모드: 누르면 바로 바뀜 (저장 버튼과 따로) -->
+  <h2>모드</h2>
+  <div class="sub">누르면 바로 바뀌어요 (저장 안 눌러도 돼요). 노치 우클릭 → 모드에서도 바꿀 수 있어요.</div>
+  <div class="seg" id="modes"></div>
+  <div class="plat-note" id="modeNote"></div>
+
   <!-- 음악 플랫폼 -->
   <h2>음악 플랫폼</h2>
   <div class="sub">제스처와 노치 버튼이 조작할 곳이에요. 저장하면 바로 바뀌어요.</div>
@@ -404,6 +410,34 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     $('platNote').innerHTML = (PLATFORM_NOTES[id] || '') + gestureTable(id);
   }
 
+  // 모드: 보통 / 인식만 / DJ (main.js 의 MODES · setMode)
+  const MODE_NOTES = {
+    normal: '<b>보통</b> · 제스처를 알아보면 바로 장르를 틀거나 넘기고 볼륨을 바꿔요.',
+    watch: '<b>인식만</b> · 제스처를 알아보기만 하고 아무것도 조작하지 않아요. 노치에 "인식만 · 다음 곡"처럼 무엇을 했을지만 보여줘요.<br>'
+      + '동작을 연습할 때, 수업·발표 중에 손이 움직여도 음악이 안 바뀌게 하고 싶을 때 써요. (우클릭 → 제스처 테스트는 그대로 조작돼요)',
+    dj: '<b>DJ</b> · 상황 엔진이 고른 장르만 계속 틀어요. 노래 중간엔 끊지 않고, 곡이 바뀌는 순간에만 다시 골라요.<br>'
+      + '· 같은 장르를 40분 넘게 틀었는데 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨)이 바뀌면 → 다시 골라요<br>'
+      + '· 한 장르를 90분 넘게 틀면 → 질렸을 테니 다른 장르로<br>'
+      + '· 4분 안에 3곡을 금방 넘기면 → 안 맞는 거니까 다른 장르로<br>'
+      + '· 플리가 끝나면 → 이어서 골라요 · 앱에서 직접 다른 걸 틀면 → 그 곡이 끝난 뒤 엔진이 이어 가요<br>'
+      + '장르 제스처와 시간대별 장르는 안 써요. 넘김 · 좋아요 · 볼륨 · 멈춤은 그대로고 엔진이 배우는 점수가 돼요. '
+      + '"알아서 틀기" 제스처는 "다른 장르로"가 돼요. 곡 중간에 멈추면 그대로 두고, 다시 틀면 이어서 DJ 해요.',
+  };
+  function drawModes(names) {
+    $('modes').innerHTML = Object.entries(names).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
+    $('modes').onclick = async (e) => {
+      const id = e.target.dataset.id;
+      if (!id) return;
+      const s = await api.setMode(id);
+      saved.mode = s.mode; // 저장 비교(readAll)와 어긋나지 않게
+      showMode(s.mode);
+    };
+  }
+  function showMode(id) {
+    document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+    $('modeNote').innerHTML = MODE_NOTES[id] || '';
+  }
+
   // 이 플랫폼에서 제스처가 실제로 하는 일 (main.js 의 gestureHelp)
   let gestureHelp = {};
   function gestureTable(id) {
@@ -607,11 +641,13 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
       smooth: { on: $('smoothOn').checked }, // (main.js cleanSettings 와 같은 순서: 바뀜 비교가 글자 그대로라서)
       learn: { on: $('learnOn').checked },
       situation: { city: $('sitCity').value.trim().slice(0, 40), ical: $('sitIcal').value.trim(), apps: $('sitApps').checked },
+      mode: saved ? saved.mode : 'normal', // 모드는 위 버튼이 바로 바꿈 (저장은 안 건드림)
     };
   }
 
   function drawAll(s) {
     rowsOf('genres').concat(rowsOf('controls'), rowsOf('slots')).forEach((r) => r.remove());
+    showMode(s.mode || 'normal');
     $('fbSound').checked = s.feedback.sound;
     $('smoothOn').checked = s.smooth.on;
     $('learnOn').checked = s.learn.on;
@@ -1004,6 +1040,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     hasPi = r.hasPi;
     gestureHelp = r.gestureHelp || {};
     $('piAddr').value = r.piAddr || '';
+    drawModes(r.modes || { normal: '보통', watch: '인식만', dj: 'DJ' });
     drawPlatforms(r.platforms);
     drawSources(r.sources);
     drawAll(saved);
