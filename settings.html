@@ -11,7 +11,8 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
 
 제스처 이름 = 인식기(웹캠/라즈베리파이)가 보내는 이름. 두 목록을 통틀어 겹치면 안 돼요.
 
-맨 위 "제스처 학습" 은 라즈베리파이 대시보드(http://파이IP:8090/)와 같은 일을 해요.
+탭 6개: 기본(모드·플랫폼·카메라) / 동작 학습 / 장르 · 조작 / 상황 엔진 / 자동 / OLED  (마지막에 본 탭을 기억)
+"동작 학습" 탭은 라즈베리파이 대시보드(http://파이IP:8090/)와 같은 일을 해요.
   이름 적고 녹화 → 학습하기. 새 이름은 [장르로 추가] 를 눌러 아래 목록에 넣고 저장.
   파이와는 main.js 의 'pi:api' 가 대신 이야기해요.
 
@@ -32,12 +33,67 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   body {
     background: var(--bg); color: var(--text);
     font: 13px/1.5 "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif;
-    padding: 28px 28px 90px;
+    padding: 0 0 90px;
   }
-  h1 { font-size: 20px; margin-bottom: 4px; }
-  h2 { font-size: 15px; margin: 30px 0 4px; }
+  h1 { font-size: 18px; }
+  h2 { font-size: 15px; margin: 0 0 4px; }
   .sub { color: var(--sub); font-size: 12px; }
-  h2 + .sub { margin-bottom: 12px; }
+
+  /* 맨 위: 제목 · 요약 · 탭 (붙어 있음) */
+  .top {
+    position: sticky; top: 0; z-index: 5; padding: 18px 28px 0;
+    background: rgba(18,18,18,.94); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  }
+  .top-row, .tabs { max-width: 804px; margin: 0 auto; }
+  .top-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .summary { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; cursor: pointer; }
+  .pill { font-size: 11.5px; color: var(--sub); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .pill b { color: var(--text); font-weight: 600; margin-left: 2px; }
+  .tabs { display: flex; gap: 2px; margin-top: 12px; overflow-x: auto; scrollbar-width: none; }
+  .tabs button {
+    position: relative; height: 38px; padding: 0 12px; border-radius: 0; background: none;
+    color: var(--sub); border-bottom: 2px solid transparent;
+  }
+  .tabs button:hover { background: none; color: var(--text); }
+  .tabs button.on { color: var(--text); font-weight: 700; border-bottom-color: var(--accent); }
+  .tabs button.bad::after { content: ""; position: absolute; top: 9px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--danger); } /* 이 탭에 고칠 칸이 있음 */
+
+  main { max-width: 860px; margin: 0 auto; padding: 4px 28px 0; }
+  .page { display: none; }
+  .page.on { display: block; }
+  .group { padding: 24px 0; border-top: 1px solid var(--line); }
+  .group:first-child { border-top: 0; }
+  .lead { color: var(--sub); font-size: 12.5px; line-height: 1.6; margin-bottom: 12px; }
+  .hint { color: var(--sub); font-size: 12px; line-height: 1.6; margin-top: 12px; }
+  details.more { margin: -4px 0 14px; font-size: 12.5px; color: var(--sub); }
+  details.more summary { width: fit-content; cursor: pointer; color: var(--accent); list-style: none; }
+  details.more summary::-webkit-details-marker { display: none; }
+  details.more summary::before { /* 꺾쇠 › (펼치면 아래로) */
+    content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 7px 2px 1px;
+    border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s;
+  }
+  details.more[open] summary::before { transform: rotate(45deg); }
+  details.more ul { margin: 8px 0 0 18px; display: flex; flex-direction: column; gap: 4px; line-height: 1.6; }
+  details.more b { color: var(--text); }
+
+  /* 모드 카드 3개 */
+  .modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .modes button {
+    height: auto; padding: 12px 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; white-space: normal;
+  }
+  .modes button:hover { background: var(--panel); border-color: #555; }
+  .modes button b { font-size: 14px; }
+  .modes button span { color: var(--sub); font-size: 12px; line-height: 1.45; }
+  .modes button.on { border-color: var(--accent); background: rgba(139,108,255,.12); box-shadow: inset 0 0 0 1px var(--accent); }
+  .modes button.on b { color: var(--accent); }
+
+  /* 상황 엔진이 볼 것 (입력 칸) */
+  .fields { display: flex; flex-direction: column; gap: 12px; background: var(--panel); border-radius: 12px; padding: 14px; }
+  .field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px 12px; align-items: center; }
+  .field em { grid-column: 2; font-style: normal; color: var(--sub); font-size: 12px; }
+  .field em:empty { display: none; }
+  .field.check input { justify-self: start; width: 16px; height: 16px; accent-color: var(--accent); }
 
   /* 카메라 스위치 */
   .row-switch {
@@ -79,9 +135,6 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   .chip .meter i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
   .chip .pct { text-align: right; color: var(--sub); font-size: 12px; }
   .chip .why { grid-column: 2 / 4; margin-top: -4px; color: var(--sub); font-size: 11px; }
-  .sit-city { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--sub); }
-  #sitCity { width: 180px; flex: none; }
-  .sit-city { white-space: nowrap; }
   .learned { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
   .learned .l { display: grid; grid-template-columns: minmax(0, 1fr) 90px 110px auto; gap: 8px; align-items: center; padding: 4px 0; border-top: 1px solid var(--line); }
   .learned .l .s { color: var(--sub); }
@@ -132,7 +185,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   .bar .state { margin-right: auto; color: var(--sub); font-size: 12px; }
   .bar .state.bad { color: var(--danger); }
   .save { background: var(--accent); color: #000; font-weight: 700; padding: 0 20px; }
-  .save:hover { background: #3be477; }
+  .save:hover { background: #a48cff; }
   .save:disabled { opacity: .4; cursor: default; }
 
   /* 음악 플랫폼 고르기 */
@@ -140,8 +193,9 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   .seg button { height: 34px; padding: 0 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--sub); }
   .seg button:hover { color: var(--text); background: var(--panel); border-color: #555; }
   .seg button.on { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
-  .plat-note { margin-top: 10px; background: var(--panel); border-radius: 10px; padding: 10px 14px; color: var(--sub); font-size: 12px; line-height: 1.7; }
-  .plat-note b { color: var(--text); font-weight: 600; }
+  .note { margin-top: 10px; background: var(--panel); border-radius: 10px; padding: 10px 14px; color: var(--sub); font-size: 12px; line-height: 1.7; }
+  .note b { color: var(--text); font-weight: 600; }
+  .note ul { margin: 4px 0 0 18px; }
 
   /* 제스처 학습 */
   .train-wrap { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
@@ -158,7 +212,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   .rec-row { display: flex; gap: 8px; margin-top: 10px; }
   .rec-row input { flex: 1; min-width: 0; }
   .primary { background: var(--accent); color: #000; font-weight: 700; }
-  .primary:hover { background: #3be477; }
+  .primary:hover { background: #a48cff; }
   button:disabled { opacity: .4; cursor: default; }
   /* 내가 학습한 동작 — 모형이 자세를 따라 하는 카드들 */
   .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
@@ -189,150 +243,229 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   .oled-bar { align-items: center; }
   .oled-bar .sub { flex: 1; }
   #recNone.need { box-shadow: inset 0 0 0 1px #e8a33d; color: #e8a33d; } /* 평소 모습을 아직 녹화 안 함 */
-  @media (max-width: 640px) { .train-wrap { grid-template-columns: 1fr; } }
+  .bar > * { flex: none; }
+  @media (max-width: 640px) {
+    .train-wrap, .modes { grid-template-columns: 1fr; }
+    .top, main { padding-left: 16px; padding-right: 16px; }
+    .field { grid-template-columns: 1fr; }
+    .field em { grid-column: 1; }
+  }
 </style>
 </head>
 <body>
-  <h1>설정</h1>
-  <div class="sub">제스처마다 틀 장르와 재생 조작을 정해요. 저장하면 바로 적용돼요.</div>
-
-  <!-- 모드: 누르면 바로 바뀜 (저장 버튼과 따로) -->
-  <h2>모드</h2>
-  <div class="sub">누르면 바로 바뀌어요 (저장 안 눌러도 돼요). 노치 우클릭 → 모드에서도 바꿀 수 있어요.</div>
-  <div class="seg" id="modes"></div>
-  <div class="plat-note" id="modeNote"></div>
-
-  <!-- 음악 플랫폼 -->
-  <h2>음악 플랫폼</h2>
-  <div class="sub">제스처와 노치 버튼이 조작할 곳이에요. 저장하면 바로 바뀌어요.</div>
-  <div class="seg" id="platforms"></div>
-  <div class="plat-note" id="platNote"></div>
-
-  <!-- 0. 제스처 학습 (라즈베리파이) -->
-  <h2>제스처 학습</h2>
-  <div class="sub">아래 "카메라"에서 고른 카메라(라즈베리파이 또는 맥북) 앞에서 동작을 녹화하고 학습시켜요. 이름을 적고 녹화 → 3초 뒤부터 5초 동안 모아요.
-    <b>평소 모습</b>(아무 동작도 안 할 때)도 꼭 녹화하세요. 같은 동작을 자리·거리를 바꿔 2~3번 녹화하면 더 잘 알아봐요.</div>
-  <div class="train-wrap">
-    <div class="card cam" id="camCard">
-      <img id="piCam" alt="">
-      <div class="off" id="camOff">카메라에 연결하는 중…</div>
-      <div class="count" id="count"></div>
+  <!-- 맨 위: 제목 · 지금 적용된 것 요약 · 탭 (스크롤해도 붙어 있음) -->
+  <header class="top">
+    <div class="top-row">
+      <h1>설정</h1>
+      <div class="summary" id="summary"></div>
     </div>
-    <div class="card">
-      <div class="sub">지금 인식</div>
-      <div class="now" id="now">-</div>
-      <div class="sub" id="nowSub"></div>
-      <div class="hold"><i id="hold"></i></div>
-      <div class="rec-row">
-        <input type="text" id="recName" placeholder="동작 이름 예) rock" list="recNames">
-        <datalist id="recNames"></datalist>
-        <button class="primary" id="rec">녹화</button>
+    <nav class="tabs" id="tabs">
+      <button data-tab="basic">기본</button>
+      <button data-tab="train">동작 학습</button>
+      <button data-tab="links">장르 · 조작</button>
+      <button data-tab="engine">상황 엔진</button>
+      <button data-tab="auto">자동</button>
+      <button data-tab="oled">OLED</button>
+    </nav>
+  </header>
+
+  <main>
+  <!-- ===== 기본: 모드 · 음악 플랫폼 · 카메라 ===== -->
+  <section class="page" data-page="basic">
+    <div class="group">
+      <h2>모드</h2>
+      <p class="lead">누르면 바로 바뀌어요 (저장 안 눌러도 돼요). 노치 우클릭 → 모드에서도 바꿀 수 있어요.</p>
+      <div class="modes" id="modes"></div>
+      <div class="note" id="modeNote"></div>
+    </div>
+
+    <div class="group">
+      <h2>음악 플랫폼</h2>
+      <p class="lead">제스처와 노치 버튼이 조작할 곳이에요.</p>
+      <div class="seg" id="platforms"></div>
+      <div class="note" id="platNote"></div>
+    </div>
+
+    <div class="group">
+      <h2>카메라</h2>
+      <p class="lead">제스처를 알아볼 카메라예요. 인식 방법(MediaPipe + scikit-learn)은 둘 다 같아요.</p>
+      <div class="seg" id="sources"></div>
+      <div class="note" id="sourceNote"></div>
+      <div class="rec-row" id="piRow" style="display:none;margin-top:10px">
+        <input type="text" id="piAddr" placeholder="라즈베리파이 주소  예) ubuntu@192.168.0.10">
+        <button id="piConnect">연결</button>
       </div>
-      <div class="rec-row">
-        <button id="recNone" title="아무 동작도 안 하는 평소 모습(_none)을 녹화해요. 턱 괴기, 머리 만지기, 폰 보기처럼 평소에 하는 손 모양을 섞어 주세요. 여러 번 녹화할수록 잘못 인식되는 일이 줄어요.">평소 모습 녹화</button>
-        <button id="train" style="flex:1">학습하기</button>
+      <div class="sub" id="piConnMsg" style="display:none;margin-top:6px"></div>
+    </div>
+  </section>
+
+  <!-- ===== 동작 학습: 녹화 · 학습 · 내가 학습한 동작 ===== -->
+  <section class="page" data-page="train">
+    <div class="group">
+      <h2>제스처 학습</h2>
+      <p class="lead">카메라 앞에서 동작을 녹화하고 학습시켜요. 이름을 적고 녹화 → 3초 뒤부터 5초 동안 모아요.</p>
+      <details class="more"><summary>잘 알아보게 하려면</summary>
+        <ul>
+          <li><b>평소 모습</b>(아무 동작도 안 할 때)도 꼭 녹화하세요. 턱 괴기 · 머리 만지기 · 폰 보기처럼 평소 손 모양을 섞어 주세요.</li>
+          <li>같은 동작을 자리 · 거리를 바꿔 2~3번 녹화하면 더 잘 알아봐요.</li>
+          <li>카메라는 "기본" 탭에서 골라요 (라즈베리파이 또는 맥북). 학습은 카메라마다 따로예요.</li>
+        </ul>
+      </details>
+      <div class="train-wrap">
+        <div class="card cam" id="camCard">
+          <img id="piCam" alt="">
+          <div class="off" id="camOff">카메라에 연결하는 중…</div>
+          <div class="count" id="count"></div>
+        </div>
+        <div class="card">
+          <div class="sub">지금 인식</div>
+          <div class="now" id="now">-</div>
+          <div class="sub" id="nowSub"></div>
+          <div class="hold"><i id="hold"></i></div>
+          <div class="rec-row">
+            <input type="text" id="recName" placeholder="동작 이름 예) rock" list="recNames">
+            <datalist id="recNames"></datalist>
+            <button class="primary" id="rec">녹화</button>
+          </div>
+          <div class="rec-row">
+            <button id="recNone" title="아무 동작도 안 하는 평소 모습(_none)을 녹화해요. 턱 괴기, 머리 만지기, 폰 보기처럼 평소에 하는 손 모양을 섞어 주세요. 여러 번 녹화할수록 잘못 인식되는 일이 줄어요.">평소 모습 녹화</button>
+            <button id="train" style="flex:1">학습하기</button>
+          </div>
+          <div class="rec-row" id="importRow" style="display:none"><button id="importPi" style="flex:1" title="라즈베리파이에서 녹화한 샘플을 복사해 와서 맥북에서 다시 학습해요 (맥북 쪽 샘플은 바뀌어요)">라즈베리파이 샘플 가져오기</button></div>
+          <div class="msg" id="piMsg"></div>
+        </div>
       </div>
-      <div class="rec-row" id="importRow" style="display:none"><button id="importPi" style="flex:1" title="라즈베리파이에서 녹화한 샘플을 복사해 와서 맥북에서 다시 학습해요 (맥북 쪽 샘플은 바뀌어요)">라즈베리파이 샘플 가져오기</button></div>
-      <div class="msg" id="piMsg"></div>
     </div>
-  </div>
 
-  <!-- 내가 학습한 동작: 까먹었을 때 보는 모형 -->
-  <h2>내가 학습한 동작</h2>
-  <div class="sub">녹화한 샘플 중 가장 대표적인 자세를 모형이 따라 해요. 평소 자세에서 그 동작으로 움직였다가 돌아와요. 손 모양이 쓰이는 동작은 옆에 손도 보여줘요.</div>
-  <div class="gallery" id="gallery"><div class="empty">카메라에 연결하면 여기에 나와요</div></div>
-
-  <!-- OLED 화면 확인 -->
-  <h2>OLED 화면</h2>
-  <div class="sub">라즈베리파이 OLED 에 지금 나오는 그림이에요. 안 꽂힌 화면은 "꽂으면 이렇게 나와요" 미리보기예요.</div>
-  <div class="oleds" id="oleds"><div class="empty">라즈베리파이에 연결하면 여기에 나와요</div></div>
-  <div class="rec-row oled-bar">
-    <button id="oledIdentify" title="각 OLED 에 큰 번호(1, 2, 3)를 5초 띄워요. 어느 선이 어느 화면인지 확인할 때">화면 번호 띄우기</button>
-    <div class="sub" id="oledNote"></div>
-  </div>
-
-  <!-- 1. 장르 -->
-  <h2>장르</h2>
-  <div class="sub">제스처를 하면 검색어로 플레이리스트를 찾아서 하나를 틀어요. 최근에 튼 5개는 빼고 골라서 매번 달라져요. 내 플레이리스트를 고르면 그걸 무작위 곡부터 틀어요.</div>
-  <div class="plist-bar"><span id="plistNote">내 플레이리스트 불러오는 중…</span><button id="plistReload">새로고침</button><button id="plistLogin" style="display:none">내 플리 권한 받기 (다시 로그인)</button></div>
-  <div class="list" id="genres">
-    <div class="item head-row"><div>장르</div><div>제스처 이름</div><div>틀 음악 (검색어 또는 내 플레이리스트)</div><div></div><div></div></div>
-  </div>
-  <button class="add" id="addGenre">+ 장르 추가</button>
-
-  <!-- 2. 재생 조작 -->
-  <h2>재생 조작</h2>
-  <div class="sub">스와이프는 화면에 보이는 방향 기준이에요.</div>
-  <div class="list" id="controls">
-    <div class="item head-row"><div>제스처 이름</div><div>동작</div><div></div><div></div></div>
-  </div>
-  <button class="add" id="addControl">+ 조작 추가</button>
-
-  <!-- 3. 자동 -->
-  <h2>상황 엔진 · 알아서 틀기</h2>
-  <div class="sub">장르를 고르지 않아도 지금 상황(요일 · 시간대 · 날씨 · 워치 · 하는 일 · 캘린더 · 혼자/여럿 · 최근에 들은 것)에 맞는 장르를 골라 틀어요. "이럴 땐 신나는 게 / 잔잔한 게"는 모든 장르가 같이 배워서, 새로 만든 장르도 바로 그럴듯하게 골라요. 틀 때마다 얼마나 들었는지 · 좋아요 · 볼륨 · 금방 바꿨는지를 점수로 남기고, 그 기록으로 "이런 상황엔 이 장르"를 배워요. 덜 들어 본 장르도 가끔 섞어서 새로 알아 가요.
-    제스처로 쓰려면 아래 "재생 조작"에서 동작을 <b>알아서 틀기</b>로 고르세요. 우클릭 메뉴에도 있어요.</div>
-  <div class="sit">
-    <div class="sit-now"><div><div class="sub">지금 상황</div><b id="sitNow">…</b></div><div class="grow"></div><button id="sitPlay">지금 알아서 틀기</button></div>
-    <div><h3>지금 알아서 틀면</h3><div class="chips" id="sitRank"></div></div>
-    <div class="sit-city">날씨 쓸 도시 <input type="text" id="sitCity" placeholder="예) 서울 (비우면 안 씀)"> <span id="sitWeather"></span></div>
-    <div class="sit-city">캘린더 iCal 주소 <input type="text" id="sitIcal" placeholder="선택 · 구글 캘린더 설정 → 비공개 iCal 주소" style="flex:1"> <span id="sitCal"></span></div>
-    <div class="sit-city"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="sitApps"> 지금 쓰는 앱 종류도 보기</label>
-      <span class="sub">작업 · 회의 · 노는 중 · 채팅 · 웹 — 종류만 쓰고 앱 이름·창 제목은 저장 안 해요</span></div>
-    <div class="sub" id="sitSignals"></div>
-    <div class="fav-bar"><span class="sub" id="sitCount"></span><button id="sitAnalytics" style="height:26px">분석 열기 (지표 · 배운 것 · 기록)</button></div>
-  </div>
-
-  <h2>자동</h2>
-  <div class="sub">켜 두면 알아서 해 주는 것들이에요. 전부 따로 켜고 끌 수 있어요.</div>
-  <div class="row-switch">
-    <div><b>인식 소리</b><div class="sub">제스처가 인식되면 짧은 소리를 내요. 소리를 꺼도 노치는 반짝여요.</div></div>
-    <label class="switch"><input type="checkbox" id="fbSound"><span></span></label>
-  </div>
-  <div class="row-switch">
-    <div><b>부드러운 전환</b><div class="sub">장르를 바꿀 때 소리를 1초 동안 줄였다가 새 플리를 틀고 천천히 원래 크기로 키워요. (Spotify · 볼륨을 바꿀 수 있는 기기만)</div></div>
-    <label class="switch"><input type="checkbox" id="smoothOn"><span></span></label>
-  </div>
-  <div class="row-switch">
-    <div><b>알아서 단골 만들기</b><div class="sub">검색으로 튼 플리를 10분 넘게 들으면 ★ 단골, 45초 안에 바꾸거나 2분 안에 3곡 넘기면 "별로"로 기억해요. 다음엔 단골이 자주, 별로는 드물게 나와요.</div></div>
-    <label class="switch"><input type="checkbox" id="learnOn"><span></span></label>
-  </div>
-  <div id="favBox">
-    <div class="favs" id="favs"></div>
-    <div class="fav-bar"><span id="favNote"></span><button id="favReset" style="height:26px">기록 전부 지우기</button></div>
-  </div>
-  <div class="row-switch">
-    <div><b>자리 비움 감지</b>
-      <div class="sub">카메라에 사람이 <input type="number" id="awayMin" min="1" max="120" class="num">분 동안 안 보이면 음악을 멈추고, 돌아오면 이어서 틀어요.</div></div>
-    <label class="switch"><input type="checkbox" id="awayOn"><span></span></label>
-  </div>
-  <div class="row-switch">
-    <div><b>시간대별 장르</b>
-      <div class="sub">정한 시각이 되면 그 장르로 바꿔요. 음악이 나오고 있을 때만 바꾸고, 조용할 땐 갑자기 틀지 않아요.</div></div>
-    <label class="switch"><input type="checkbox" id="schedOn"><span></span></label>
-  </div>
-  <div id="schedBox">
-    <div class="list" id="slots">
-      <div class="item head-row"><div>이 시각부터</div><div>장르</div><div></div></div>
+    <div class="group">
+      <h2>내가 학습한 동작</h2>
+      <p class="lead">까먹었을 때 보세요. 녹화한 것 중 대표 자세를 모형이 따라 해요. [장르로 추가]를 누르면 "장르 · 조작" 탭에 들어가요.</p>
+      <div class="gallery" id="gallery"><div class="empty">카메라에 연결하면 여기에 나와요</div></div>
     </div>
-    <button class="add" id="addSlot">+ 시간대 추가</button>
-  </div>
+  </section>
 
-  <!-- 4. 카메라 -->
-  <h2>카메라</h2>
-  <div class="sub">제스처를 알아볼 카메라예요. 인식 방법(MediaPipe + scikit-learn)은 둘 다 같아요.</div>
-  <div class="seg" id="sources"></div>
-  <div class="plat-note" id="sourceNote"></div>
-  <div class="rec-row" id="piRow" style="display:none;margin-top:10px">
-    <input type="text" id="piAddr" placeholder="라즈베리파이 주소  예) ubuntu@192.168.0.10">
-    <button id="piConnect">연결</button>
-  </div>
-  <div class="sub" id="piConnMsg" style="display:none"></div>
+  <!-- ===== 장르 · 조작: 제스처 → 무엇을 할지 ===== -->
+  <section class="page" data-page="links">
+    <div class="group">
+      <h2>장르</h2>
+      <p class="lead">이 제스처를 하면 → 이 장르 플레이리스트를 틀어요.</p>
+      <details class="more"><summary>어떻게 고르나요</summary>
+        <ul>
+          <li>검색어로 플레이리스트를 찾아, 제목·설명이 진짜 그 장르인 것만 남기고 하나를 틀어요. 최근에 튼 5개는 빼서 매번 달라져요.</li>
+          <li>검색어 대신 <b>내 플레이리스트</b>를 고르면 그걸 무작위 곡부터 틀어요.</li>
+        </ul>
+      </details>
+      <div class="plist-bar"><span id="plistNote">내 플레이리스트 불러오는 중…</span><button id="plistReload">새로고침</button><button id="plistLogin" style="display:none">내 플리 권한 받기 (다시 로그인)</button></div>
+      <div class="list" id="genres">
+        <div class="item head-row"><div>장르</div><div>제스처 이름</div><div>틀 음악 (검색어 또는 내 플레이리스트)</div><div></div><div></div></div>
+      </div>
+      <button class="add" id="addGenre">+ 장르 추가</button>
+    </div>
 
-  <div class="sub" style="margin-top:24px">
-    제스처 이름은 위 "제스처 학습"에서 녹화·학습한 동작 이름과 같아야 해요.
-    swipe_left / swipe_right / swipe_up / swipe_down 은 학습 없이 손을 빠르게 움직이면 돼요.
-  </div>
+    <div class="group">
+      <h2>재생 조작</h2>
+      <p class="lead">다음 곡 · 볼륨 같은 조작이에요. 스와이프는 화면에 보이는 방향 기준이에요.</p>
+      <div class="list" id="controls">
+        <div class="item head-row"><div>제스처 이름</div><div>동작</div><div></div><div></div></div>
+      </div>
+      <button class="add" id="addControl">+ 조작 추가</button>
+      <p class="hint">제스처 이름은 "동작 학습" 탭에서 녹화한 이름과 같아야 해요. swipe_left / swipe_right / swipe_up / swipe_down 은 학습 없이 손을 빠르게 움직이면 돼요.</p>
+    </div>
+  </section>
+
+  <!-- ===== 상황 엔진 ===== -->
+  <section class="page" data-page="engine">
+    <div class="group">
+      <h2>상황 엔진 · 알아서 틀기</h2>
+      <p class="lead">장르를 안 골라도 지금 상황에 맞는 장르를 골라 틀고, 들은 기록으로 배워요. DJ 모드는 이 엔진이 계속 골라요.</p>
+      <details class="more"><summary>무엇을 보고 어떻게 배우나요</summary>
+        <ul>
+          <li>보는 것: 요일 · 시간대 · 날씨 · 워치 · 하는 일 · 캘린더 · 혼자/여럿 · 최근에 들은 것</li>
+          <li>"이럴 땐 신나는 게 / 잔잔한 게"는 모든 장르가 같이 배워서, 새로 만든 장르도 바로 그럴듯하게 골라요.</li>
+          <li>틀 때마다 얼마나 들었는지 · 좋아요 · 볼륨 · 금방 바꿨는지를 점수로 남기고, 덜 들어 본 장르도 가끔 섞어서 새로 알아 가요.</li>
+          <li>제스처로 쓰려면 "장르 · 조작" 탭의 재생 조작에서 동작을 <b>알아서 틀기</b>로 고르세요. 우클릭 메뉴에도 있어요.</li>
+        </ul>
+      </details>
+      <div class="sit">
+        <div class="sit-now"><div><div class="sub">지금 상황</div><b id="sitNow">…</b></div><div class="grow"></div><button class="primary" id="sitPlay">지금 알아서 틀기</button></div>
+        <div><h3>지금 알아서 틀면</h3><div class="chips" id="sitRank"></div></div>
+        <div class="sub" id="sitSignals"></div>
+        <div class="fav-bar"><span class="sub" id="sitCount"></span><button id="sitAnalytics" style="height:26px">분석 열기 (지표 · 배운 것 · 기록)</button></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>엔진이 볼 것</h2>
+      <p class="lead">넣을수록 상황을 더 잘 알아요. 비워 둬도 돼요.</p>
+      <div class="fields">
+        <label class="field"><span>날씨 쓸 도시</span><input type="text" id="sitCity" placeholder="예) 서울 (비우면 안 씀)"><em id="sitWeather"></em></label>
+        <label class="field"><span>캘린더 iCal 주소</span><input type="text" id="sitIcal" placeholder="선택 · 구글 캘린더 설정 → 비공개 iCal 주소"><em id="sitCal"></em></label>
+        <label class="field check"><span>지금 쓰는 앱 종류</span><input type="checkbox" id="sitApps"><em>작업 · 회의 · 노는 중 · 채팅 · 웹 — 종류만 쓰고 앱 이름 · 창 제목은 저장 안 해요</em></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 자동 ===== -->
+  <section class="page" data-page="auto">
+    <div class="group">
+      <h2>자동</h2>
+      <p class="lead">켜 두면 알아서 해 주는 것들이에요. 전부 따로 켜고 끌 수 있어요.</p>
+      <div class="row-switch">
+        <div><b>인식 소리</b><div class="sub">제스처가 인식되면 짧은 소리를 내요. 소리를 꺼도 노치는 반짝여요.</div></div>
+        <label class="switch"><input type="checkbox" id="fbSound"><span></span></label>
+      </div>
+      <div class="row-switch">
+        <div><b>부드러운 전환</b><div class="sub">장르를 바꿀 때 소리를 1초 동안 줄였다가 새 플리를 틀고 천천히 키워요. (Spotify · 볼륨을 바꿀 수 있는 기기만)</div></div>
+        <label class="switch"><input type="checkbox" id="smoothOn"><span></span></label>
+      </div>
+      <div class="row-switch">
+        <div><b>자리 비움 감지</b>
+          <div class="sub">카메라에 사람이 <input type="number" id="awayMin" min="1" max="120" class="num">분 동안 안 보이면 음악을 멈추고, 돌아오면 이어서 틀어요.</div></div>
+        <label class="switch"><input type="checkbox" id="awayOn"><span></span></label>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>알아서 단골 만들기</h2>
+      <div class="row-switch">
+        <div><b>들은 기록으로 단골 · 별로 기억</b><div class="sub">검색으로 튼 플리를 10분 넘게 들으면 ★ 단골, 45초 안에 바꾸거나 2분 안에 3곡 넘기면 "별로". 다음엔 단골이 자주, 별로는 드물게 나와요.</div></div>
+        <label class="switch"><input type="checkbox" id="learnOn"><span></span></label>
+      </div>
+      <div id="favBox">
+        <div class="favs" id="favs"></div>
+        <div class="fav-bar"><span id="favNote"></span><button id="favReset" style="height:26px">기록 전부 지우기</button></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>시간대별 장르</h2>
+      <div class="row-switch">
+        <div><b>정한 시각에 장르 바꾸기</b>
+          <div class="sub">음악이 나오고 있을 때만 바꾸고, 조용할 땐 갑자기 틀지 않아요. DJ 모드에선 안 써요.</div></div>
+        <label class="switch"><input type="checkbox" id="schedOn"><span></span></label>
+      </div>
+      <div id="schedBox">
+        <div class="list" id="slots">
+          <div class="item head-row"><div>이 시각부터</div><div>장르</div><div></div></div>
+        </div>
+        <button class="add" id="addSlot">+ 시간대 추가</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== OLED (라즈베리파이) ===== -->
+  <section class="page" data-page="oled">
+    <div class="group">
+      <h2>OLED 화면</h2>
+      <p class="lead">라즈베리파이 OLED 에 지금 나오는 그림이에요. 안 꽂힌 화면은 "꽂으면 이렇게 나와요" 미리보기예요.</p>
+      <div class="oleds" id="oleds"><div class="empty">라즈베리파이에 연결하면 여기에 나와요</div></div>
+      <div class="rec-row oled-bar">
+        <button id="oledIdentify" title="각 OLED 에 큰 번호(1, 2, 3)를 5초 띄워요. 어느 선이 어느 화면인지 확인할 때">화면 번호 띄우기</button>
+        <div class="sub" id="oledNote"></div>
+      </div>
+    </div>
+  </section>
+  </main>
 
   <div class="bar">
     <div class="state" id="state"></div>
@@ -351,15 +484,17 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   let platform = 'spotify'; // 지금 고른 플랫폼 (저장 전)
   let source = 'off'; // 지금 고른 카메라 (저장 전): pi / mac / off
   let hasPi = false; // 라즈베리파이 주소가 설정돼 있는지 ("샘플 가져오기" 버튼을 보여줄지)
+  const names = { modes: {}, platforms: {}, sources: {} }; // 맨 위 요약에 쓸 이름들
 
   const SOURCE_NOTES = {
     pi: '<b>라즈베리파이 웹캠</b> · 파이에 꽂은 웹캠으로 인식해요. 맥과 같은 와이파이여야 하고 VPN 은 꺼야 해요.',
-    mac: '<b>맥북 카메라</b> · 맥북 내장 카메라로 인식해요. 처음 고르면 인식 프로그램을 한 번 설치해요 (1~3분, 인터넷 필요).<br>동작 학습은 카메라마다 따로예요. 위 "제스처 학습"에서 다시 녹화하거나 <b>라즈베리파이 샘플 가져오기</b>를 누르세요. 쓰는 동안 카메라 초록 불이 켜져 있어요.',
+    mac: '<b>맥북 카메라</b> · 맥북 내장 카메라로 인식해요. 처음 고르면 인식 프로그램을 한 번 설치해요 (1~3분, 인터넷 필요).<br>동작 학습은 카메라마다 따로예요. "동작 학습" 탭에서 다시 녹화하거나 <b>라즈베리파이 샘플 가져오기</b>를 누르세요. 쓰는 동안 카메라 초록 불이 켜져 있어요.',
     off: '<b>끄기</b> · 카메라를 안 써요. 노치 버튼과 우클릭 → 제스처 테스트는 그대로 돼요.',
   };
 
-  function drawSources(names) {
-    $('sources').innerHTML = Object.entries(names).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
+  function drawSources(list) {
+    names.sources = list;
+    $('sources').innerHTML = Object.entries(list).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
     $('sources').onclick = (e) => {
       if (!e.target.dataset.id) return;
       setSource(e.target.dataset.id);
@@ -396,8 +531,9 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     melon: '<b>멜론</b> · 멜론은 밖에서 조작하는 방법을 열어 두지 않아서, 키보드의 ⏯ ⏭ ⏮ 키를 누른 것처럼 조작해요 (재생/일시정지, 이전/다음, 맥 볼륨).<br>곡 정보·가사·좋아요는 안 돼요. 장르 제스처는 유튜브로 대신 틀어요. 처음에 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서 Snaptune를 허용해야 해요.',
   };
 
-  function drawPlatforms(names) {
-    $('platforms').innerHTML = Object.entries(names).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
+  function drawPlatforms(list) {
+    names.platforms = list;
+    $('platforms').innerHTML = Object.entries(list).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
     $('platforms').onclick = (e) => {
       if (!e.target.dataset.id) return;
       setPlatform(e.target.dataset.id);
@@ -410,33 +546,65 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     $('platNote').innerHTML = (PLATFORM_NOTES[id] || '') + gestureTable(id);
   }
 
-  // 모드: 보통 / 인식만 / DJ (main.js 의 MODES · setMode)
+  // 모드: 보통 / 인식만 / DJ (main.js 의 MODES · setMode). 카드에는 한 줄, 고른 모드는 아래에 자세히
+  const MODE_SHORT = { normal: '제스처로 바로 조작해요', watch: '알아보기만 하고 조작은 안 해요', dj: '상황 엔진이 골라서 계속 틀어요' };
   const MODE_NOTES = {
-    normal: '<b>보통</b> · 제스처를 알아보면 바로 장르를 틀거나 넘기고 볼륨을 바꿔요.',
-    watch: '<b>인식만</b> · 제스처를 알아보기만 하고 아무것도 조작하지 않아요. 노치에 "인식만 · 다음 곡"처럼 무엇을 했을지만 보여줘요.<br>'
-      + '동작을 연습할 때, 수업·발표 중에 손이 움직여도 음악이 안 바뀌게 하고 싶을 때 써요. (우클릭 → 제스처 테스트는 그대로 조작돼요)',
-    dj: '<b>DJ</b> · 상황 엔진이 고른 장르만 계속 틀어요. 노래 중간엔 끊지 않고, 곡이 바뀌는 순간에만 다시 골라요.<br>'
-      + '· 같은 장르를 40분 넘게 틀었는데 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨)이 바뀌면 → 다시 골라요<br>'
-      + '· 한 장르를 90분 넘게 틀면 → 질렸을 테니 다른 장르로<br>'
-      + '· 4분 안에 3곡을 금방 넘기면 → 안 맞는 거니까 다른 장르로<br>'
-      + '· 플리가 끝나면 → 이어서 골라요 · 앱에서 직접 다른 걸 틀면 → 그 곡이 끝난 뒤 엔진이 이어 가요<br>'
-      + '장르 제스처와 시간대별 장르는 안 써요. 넘김 · 좋아요 · 볼륨 · 멈춤은 그대로고 엔진이 배우는 점수가 돼요. '
-      + '"알아서 틀기" 제스처는 "다른 장르로"가 돼요. 곡 중간에 멈추면 그대로 두고, 다시 틀면 이어서 DJ 해요.',
+    normal: '제스처를 알아보면 바로 장르를 틀거나 넘기고 볼륨을 바꿔요.',
+    watch: '노치에 "인식만 · 다음 곡"처럼 무엇을 했을지만 보여줘요. 동작을 연습할 때나, 수업 · 발표 중에 손이 움직여도 음악이 안 바뀌게 할 때 써요. (우클릭 → 제스처 테스트는 그대로 조작돼요)',
+    dj: '노래 중간엔 끊지 않고, 곡이 바뀌는 순간에만 다시 골라요.<ul>'
+      + '<li>같은 장르를 40분 넘게 틀었는데 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨)이 바뀌면 → 다시 골라요</li>'
+      + '<li>한 장르를 90분 넘게 틀거나, 4분 안에 3곡을 금방 넘기면 → 다른 장르로</li>'
+      + '<li>플리가 끝나면 → 이어서 · 앱에서 직접 다른 걸 틀면 → 그 곡이 끝난 뒤 엔진이 이어 가요</li>'
+      + '<li>장르 제스처 · 시간대별 장르는 안 써요. 넘김 · 좋아요 · 볼륨 · 멈춤은 그대로 (엔진이 배우는 점수). "알아서 틀기" = 다른 장르로</li>'
+      + '<li>곡 중간에 멈추면 그대로 두고, 다시 틀면 이어서 DJ 해요</li></ul>',
   };
-  function drawModes(names) {
-    $('modes').innerHTML = Object.entries(names).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
+  function drawModes(list) {
+    names.modes = list;
+    $('modes').innerHTML = Object.entries(list).map(([id, name]) => `<button data-id="${id}"><b>${name}</b><span>${MODE_SHORT[id] || ''}</span></button>`).join('');
     $('modes').onclick = async (e) => {
-      const id = e.target.dataset.id;
+      const id = e.target.closest('button')?.dataset.id;
       if (!id) return;
       const s = await api.setMode(id);
       saved.mode = s.mode; // 저장 비교(readAll)와 어긋나지 않게
       showMode(s.mode);
+      drawSummary();
     };
   }
   function showMode(id) {
     document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
-    $('modeNote').innerHTML = MODE_NOTES[id] || '';
+    $('modeNote').innerHTML = `<b>${names.modes[id] || ''}</b> · ${MODE_NOTES[id] || ''}`;
   }
+
+  // 맨 위 요약: 지금 적용된(저장된) 모드 · 음악 · 카메라. 누르면 "기본" 탭으로
+  function drawSummary() {
+    if (!saved) return;
+    const pill = (label, value) => `<span class="pill">${label}<b>${value}</b></span>`;
+    $('summary').innerHTML = pill('모드', names.modes[saved.mode] || '보통')
+      + pill('음악', names.platforms[saved.platform] || saved.platform) + pill('카메라', names.sources[saved.source] || saved.source);
+  }
+  $('summary').onclick = () => showTab('basic');
+
+  // 탭: 마지막에 본 탭을 기억 (이 창에서만 쓰는 편의라 못 읽어도 "기본"으로)
+  const TABS = [...document.querySelectorAll('#tabs button')].map((b) => b.dataset.tab);
+  function showTab(id) {
+    if (!TABS.includes(id)) id = 'basic';
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === id));
+    document.querySelectorAll('.page').forEach((p) => p.classList.toggle('on', p.dataset.page === id));
+    try { localStorage.setItem('settingsTab', id); } catch {}
+    window.scrollTo(0, 0);
+  }
+  $('tabs').onclick = (e) => {
+    const b = e.target.closest('button');
+    if (b) showTab(b.dataset.tab);
+  };
+  // 고칠 칸(빨간 테두리)이 있는 탭에 빨간 점
+  function markTabs() {
+    document.querySelectorAll('#tabs button').forEach((b) =>
+      b.classList.toggle('bad', !!document.querySelector(`.page[data-page="${b.dataset.tab}"] .bad`)));
+  }
+  let firstTab = 'basic';
+  try { firstTab = localStorage.getItem('settingsTab') || 'basic'; } catch {}
+  showTab(firstTab);
 
   // 이 플랫폼에서 제스처가 실제로 하는 일 (main.js 의 gestureHelp)
   let gestureHelp = {};
@@ -663,6 +831,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     for (const g of s.genres) $('genres').append(genreRow(g));
     for (const c of s.controls) $('controls').append(controlRow(c));
     changed();
+    drawSummary();
   }
 
   // 빈 칸·겹치는 제스처 이름에 빨간 테두리. 문제가 있으면 그 내용을 돌려줌 (없으면 '')
@@ -697,6 +866,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     syncSlotGenres();
     const problem = validate();
     const dirty = JSON.stringify(readAll()) !== JSON.stringify(saved);
+    markTabs();
     $('save').disabled = !dirty || !!problem;
     setState(problem || (dirty ? '저장하지 않은 변경이 있어요' : '저장됨'), !!problem);
   }
@@ -712,7 +882,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
 
   for (const id of ['fbSound', 'smoothOn', 'learnOn', 'sitCity', 'sitIcal', 'sitApps', 'awayOn', 'awayMin', 'schedOn']) $(id).addEventListener('input', changed);
   $('addSlot').onclick = () => {
-    if (!rowsOf('genres').length) return setState('먼저 위에서 장르를 하나 만들어 주세요', true);
+    if (!rowsOf('genres').length) return setState('먼저 "장르 · 조작" 탭에서 장르를 하나 만들어 주세요', true);
     $('slots').append(slotRow({}));
     $('schedOn').checked = true;
     changed();
@@ -918,6 +1088,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     if (add) {
       const row = genreRow({ genre: add, gesture: add, query: add });
       $('genres').append(row);
+      showTab('links'); // 장르 목록은 "장르 · 조작" 탭에
       row.querySelector('.genre').select();
       row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       changed();
@@ -1019,7 +1190,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     if (!piStream) {
       $('piCam').removeAttribute('src');
       $('camCard').classList.remove('live');
-      $('camOff').textContent = '카메라가 꺼져 있어요 (아래 "카메라"에서 고르세요)';
+      $('camOff').textContent = '카메라가 꺼져 있어요 ("기본" 탭의 카메라에서 고르세요)';
     }
   }
 
@@ -1045,7 +1216,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     drawSources(r.sources);
     drawAll(saved);
     $('importRow').style.display = saved.source === 'mac' && hasPi ? '' : 'none';
-    if (!piStream) $('camOff').textContent = '카메라가 꺼져 있어요 (아래 "카메라"에서 고르세요)';
+    if (!piStream) $('camOff').textContent = '카메라가 꺼져 있어요 ("기본" 탭의 카메라에서 고르세요)';
     loadPlaylists();
     loadFavs();
     loadSituation();

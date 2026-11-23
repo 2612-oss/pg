@@ -704,7 +704,7 @@ function handleGesture(name, source = 'camera') {
     // 학습은 했는데 설정에서 장르·조작에 연결 안 한 동작 → 알려줌 (안 그러면 인식만 되고 아무 일도 없어 보임)
     if (source !== 'menu' && Date.now() - lastUnknownAt > 8000) {
       lastUnknownAt = Date.now();
-      notice(`'${name}' 동작은 아직 연결 안 됐어요 · 설정 → 제스처 학습에서 장르에 연결`);
+      notice(`'${name}' 동작은 아직 연결 안 됐어요 · 설정 → 장르 · 조작 탭에서 연결`);
     }
     return { ok: false, reason: `모르는 제스처: ${name}` };
   }
