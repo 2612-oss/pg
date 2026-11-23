@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('settingsApi', {
   get: () => ipcRenderer.invoke('settings:get'),
   save: (s) => ipcRenderer.invoke('settings:save', s),
   setMode: (m) => ipcRenderer.invoke('settings:mode', m), // 보통 / 인식만 / DJ — 누르면 바로 (저장과 따로)
+  setDjMix: (m) => ipcRenderer.invoke('settings:dj', m), // DJ 장르 섞기: every / few / long — 누르면 바로
   test: (g) => ipcRenderer.invoke('settings:test', g),
   playlists: () => ipcRenderer.invoke('spotify:playlists'), // 내 Spotify 플레이리스트 목록
   relogin: () => ipcRenderer.invoke('spotify:relogin'),

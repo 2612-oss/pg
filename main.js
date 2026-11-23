@@ -561,6 +561,8 @@ const CONTROL_ACTIONS = {
 //   DJ     : 상황 엔진이 고른 장르만 계속 틀어요 (아래 "DJ 모드")
 const MODES = { normal: '보통', watch: '인식만', dj: 'DJ' };
 const MODE_HELP = { normal: '제스처로 바로 조작', watch: '제스처를 알아보기만 하고 조작은 안 함', dj: '상황 엔진이 고른 노래만 계속 틀기' };
+// DJ 가 장르를 얼마나 자주 바꾸나 (tracks: 이만큼 틀고 다음 장르로, 0 = 한 장르를 오래)
+const DJ_MIX = { every: { name: '곡마다', tracks: 1 }, few: { name: '3곡마다', tracks: 3 }, long: { name: '한 장르 오래', tracks: 0 } };
 
 const DEFAULT_GENRES = [
   { genre: '락', gesture: 'rock', query: 'rock' },
@@ -643,6 +645,7 @@ function cleanSettings(s) {
       ical: /^(https|webcal):\/\//i.test(str(s.situation?.ical)) ? str(s.situation.ical).slice(0, 600) : '', // 캘린더 iCal 주소 (선택)
       apps: s.situation?.apps !== false, // 지금 쓰는 앱 종류 보기 (기본 켜짐, 종류만 씀)
     },
+    dj: { mix: DJ_MIX[s.dj?.mix] ? s.dj.mix : 'few' }, // DJ 장르 섞기 (기본 3곡마다)
     mode: MODES[s.mode] ? s.mode : 'normal', // 보통 / 인식만 / DJ (settings.html readAll 도 맨 끝에 같은 순서로)
   };
 }
@@ -877,7 +880,7 @@ async function genrePool(g) {
   const seen = new Map();
   for (const p of pages.flat()) if (!seen.has(p.uri)) seen.set(p.uri, p);
   const queryWords = clean(g.query).split(' ').filter((w) => w.length >= 2);
-  const scored = [...seen.values()].map((p) => ({ uri: p.uri, name: p.name, fit: playlistFit(p, kinds, queryWords) }))
+  const scored = [...seen.values()].map((p) => ({ uri: p.uri, name: p.name, tracks: p.tracks?.total || 0, fit: playlistFit(p, kinds, queryWords) }))
     .sort((a, b) => b.fit - a.fit);
   const good = scored.filter((p) => p.fit >= FIT_PASS);
   const items = good.length >= 3 ? good : scored.slice(0, Math.max(3, good.length));
@@ -888,7 +891,8 @@ async function genrePool(g) {
 
 // Spotify: 그 장르 플리 후보 → 최근에 튼 건 빼고 (잘 맞는 · 단골일수록 잘 뽑히게) 하나 → 재생 (기획서 3번)
 // 틀었으면 { context, label }, 못 틀었으면 안내를 띄우고 null
-async function playGenreSpotify(g) {
+// randomStart: 플리 첫 곡 말고 무작위 곡부터 (DJ — 몇 곡씩만 트니까)
+async function playGenreSpotify(g, { randomStart = false } = {}) {
   if (!tokens) return null; // 로그인 전 → playGenre 가 유튜브로 대신
   if (g.playlist) return playMyPlaylist(g.playlist);
   let all;
@@ -903,7 +907,11 @@ async function playGenreSpotify(g) {
   const pick = pickPlaylist(g.genre, all, recent);
   recentByGenre.set(g.genre, [...recent, pick.uri].slice(-RECENT_KEEP));
 
-  if (!(await smoothPlay({ context_uri: pick.uri }))) return null;
+  const body = { context_uri: pick.uri };
+  if (randomStart && pick.tracks > 1) body.offset = { position: Math.floor(Math.random() * Math.min(pick.tracks, 100)) };
+  let ok = await smoothPlay(body);
+  if (!ok && body.offset) ok = await startPlayback({ context_uri: pick.uri }); // 곡 수가 바뀌어서 위치가 없을 때
+  if (!ok) return null;
   return { context: pick.uri, label: pick.star ? `★ ${pick.name}` : pick.name, learn: true, name: pick.name };
 }
 
@@ -1131,8 +1139,8 @@ const betaDraw = (a, b) => { const x = gammaDraw(a); return x / (x + gammaDraw(b
 function pickPlaylist(genre, found, recent) {
   const fav = settings.learn.on ? favorites[genre] || {} : {};
   const bucket = ctxBucket(situationNow());
-  const pool = new Map(found.map((p) => [p.uri, { uri: p.uri, name: p.name, fit: p.fit }]));
-  for (const [uri, f] of Object.entries(fav)) if (f.good > f.bad) pool.set(uri, { uri, name: f.name, fit: pool.get(uri)?.fit ?? 2 });
+  const pool = new Map(found.map((p) => [p.uri, { uri: p.uri, name: p.name, fit: p.fit, tracks: p.tracks || 0 }]));
+  for (const [uri, f] of Object.entries(fav)) if (f.good > f.bad) pool.set(uri, { uri, name: f.name, fit: pool.get(uri)?.fit ?? 2, tracks: pool.get(uri)?.tracks || 0 });
   const weighed = [...pool.values()].map((p) => {
     const f = fav[p.uri];
     let w = p.fit == null ? 1 : Math.max(0.2, p.fit); // 장르에 잘 맞는 플리일수록
@@ -1678,11 +1686,14 @@ function rankGenres(now = situationNow(), draws = 400) {
 }
 
 // 위 확률대로 하나 뽑음 → 그 확률(p)을 그대로 기록에 남길 수 있음
-// exclude: 이 장르는 빼고 (나머지 확률을 다시 100%로 맞춤 → p 도 실제로 뽑힌 확률 그대로)
+// exclude: 이 장르(들)는 빼고 (나머지 확률을 다시 100%로 맞춤 → p 도 실제로 뽑힌 확률 그대로)
+//   다 빼면 남는 게 없을 땐 첫 번째(= 지금 장르)만 빼요
 function chooseGenre(now, exclude = null) {
   let list = rankGenres(now);
-  if (exclude && list.length > 1) {
-    const rest = list.filter((x) => x.item.genre !== exclude);
+  const ex = [].concat(exclude || []).filter(Boolean);
+  if (ex.length && list.length > 1) {
+    let rest = list.filter((x) => !ex.includes(x.item.genre));
+    if (!rest.length) rest = list.filter((x) => x.item.genre !== ex[0]);
     const sum = rest.reduce((a, x) => a + x.chance, 0) || 1;
     list = rest.map((x) => ({ ...x, chance: x.chance / sum }));
   }
@@ -1695,10 +1706,12 @@ async function playAuto({ why = '알아서 ·', exclude = null, byUser = true, k
   const now = situationNow();
   const pick = chooseGenre(now, exclude);
   if (!pick) return notice('설정에서 장르를 먼저 만들어 주세요');
-  Object.assign(dj, { genre: pick.item.genre, sit: djSit(now), at: Date.now(), skips: [], endedAt: 0, settleUntil: Date.now() + 15000 });
+  Object.assign(dj, { genre: pick.item.genre, sit: djSit(now), at: Date.now(), skips: [], endedAt: 0, settleUntil: Date.now() + 15000, tracks: 0, preId: null });
   console.log(`[상황] ${sitLabel(now)} → ${pick.item.genre} (${Math.round(pick.chance * 100)}% · ${pick.why.join(', ') || '그냥'})${why.startsWith('DJ') ? ` [${why}]` : ''}`);
   if (keepSame && pick.item.genre === currentGenre) return; // 상황이 바뀌었어도 엔진이 지금 장르가 맞대요 → 그대로
-  return playGenre(pick.item, { auto: !byUser, why, src: 'auto', p: pick.chance });
+  dj.recent = [...dj.recent.filter((x) => x !== pick.item.genre), pick.item.genre].slice(-3); // DJ 가 최근에 튼 장르 (섞을 때 빼려고)
+  // DJ 는 몇 곡씩만 트니까 플리 첫 곡부터 말고 무작위 곡부터 (매번 같은 곡으로 시작하지 않게)
+  return playGenre(pick.item, { auto: !byUser, why, src: 'auto', p: pick.chance, randomStart: settings.mode === 'dj' });
 }
 
 /* ---------- DJ 모드 ----------
@@ -1708,6 +1721,9 @@ async function playAuto({ why = '알아서 ·', exclude = null, byUser = true, k
      · 한 장르를 40분 넘게 틀었고 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨 · 몸 상태)이 바뀌었으면 → 다시 골라요
      · 한 장르를 90분 넘게 틀었으면 → 질렸을 테니 다른 장르로
      · 플리가 끝나서 멈추면 → 이어서 골라요
+     · 장르 섞기 (settings.dj.mix): 곡마다 / 3곡마다(기본) / 한 장르 오래
+         N곡째가 끝나기 4초쯤 전에 다음 장르로 (다음 곡이 잠깐 나왔다 끊기지 않게 · 부드러운 전환이면 줄였다 키움)
+         다음 장르는 엔진이 고르되 지금 장르와 방금 튼 장르는 빼요 (장르가 4개 이상일 때 최근 2개)
    곡 중간에 멈추면(제스처든 앱이든 자리 비움이든) 누가 멈춘 거니까 그대로 둬요. 다시 틀면 이어서 DJ.
    앱을 켤 때 조용하면 먼저 틀지 않아요 (재생하거나 "알아서 틀기"를 하면 시작).
    장르 제스처 · 시간대별 장르는 안 써요. 넘김 · 좋아요 · 볼륨 · 멈춤은 그대로 → 엔진이 배우는 점수가 돼요 */
@@ -1715,7 +1731,15 @@ const DJ_STAY_MS = 40 * 60000;
 const DJ_MAX_MS = 90 * 60000;
 const DJ_SKIPS = 3;
 const DJ_SKIP_WINDOW_MS = 4 * 60000;
-const dj = { genre: null, sit: null, at: 0, skips: [], settleUntil: 0, endedAt: 0, picking: false, trackId: null, prog: 0, dur: 0, playing: false };
+const dj = {
+  genre: null, sit: null, at: 0, skips: [], settleUntil: 0, endedAt: 0, picking: false, trackId: null, prog: 0, dur: 0, playing: false,
+  tracks: 0, // 지금 장르로 넘어간 곡 수 (섞기)
+  preId: null, // 곡 끝 직전에 이미 다음 장르로 넘긴 곡
+  recent: [], // DJ 가 최근에 튼 장르들
+};
+const djMixTracks = () => DJ_MIX[settings.dj?.mix]?.tracks ?? 3;
+// 섞을 때 뺄 장르: 지금 장르 + (장르가 4개 이상이면) 바로 전에 튼 장르
+const djMixExclude = () => [currentGenre, ...(settings.genres.length >= 4 ? dj.recent.slice(-2) : [])];
 // "상황이 바뀌었나" 볼 값 (시각은 아침·낮·저녁·밤 4칸으로 크게)
 const djSit = (x) => [x.day, TIME_GROUP[x.time], x.weather || '-', x.activity || '-', x.app || '-', x.cal || '-', x.people || '-'].join('|');
 const djOwns = () => !!currentGenre && currentGenre === dj.genre; // 지금 나오는 게 엔진이 고른 장르인지
@@ -1734,6 +1758,8 @@ async function djPick(why, { exclude = null, byUser = false } = {}) {
 function djReason() {
   if (dj.skips.length >= DJ_SKIPS) return { why: '자꾸 넘겨서', exclude: currentGenre, byUser: true };
   if (!djOwns()) return { why: '', byUser: false };
+  const n = djMixTracks();
+  if (n > 0 && dj.tracks >= n) return { why: '', exclude: djMixExclude(), byUser: false }; // 장르 섞기 (곡 끝 직전에 못 넘겼으면 여기서)
   const long = Date.now() - dj.at;
   if (long >= DJ_MAX_MS) return { why: `${currentGenre} 오래 들어서`, exclude: currentGenre, byUser: false };
   if (long >= DJ_STAY_MS && djSit(situationNow()) !== dj.sit) return { why: '상황이 바뀌어서', byUser: false };
@@ -1759,11 +1785,28 @@ function djTick(isPlaying, track) {
     if (dj.endedAt && now - dj.endedAt > 4000 && !autoPaused) djPick('플리가 끝나서');
     return;
   }
+  // 장르 섞기: 이번이 그 장르의 마지막 곡이면 끝나기 4초쯤 전에 다음 장르로 (1.5초마다 보니까 4 → 2.5초 전 사이)
+  const n = djMixTracks();
+  if (n > 0 && djOwns() && dj.tracks >= n - 1 && track?.id && track.id !== 'yt:ad' && track.id === prev.id && track.id !== dj.preId
+      && track.duration > 30000 && track.duration - (track.progress || 0) <= 4000) {
+    dj.preId = track.id;
+    return djPick('', { exclude: djMixExclude(), byUser: false });
+  }
   if (!prev.id || !track?.id || track.id === prev.id || track.id === 'yt:ad') return; // 곡이 바뀌는 순간에만
+  dj.tracks++;
   if (prev.prog < Math.min(60000, prev.dur * 0.5)) dj.skips.push(now); // 금방 넘김
   dj.skips = dj.skips.filter((t) => now - t < DJ_SKIP_WINDOW_MS);
   const r = djReason();
   if (r) djPick(r.why, r);
+}
+
+// DJ 장르 섞기 바꾸기 (설정 기본 탭 DJ 아래 · 우클릭 → 모드). 누르면 바로
+function setDjMix(mix) {
+  if (!DJ_MIX[mix] || settings.dj.mix === mix) return settings;
+  saveSettings({ ...settings, dj: { ...settings.dj, mix } });
+  console.log(`[DJ] 장르 섞기: ${DJ_MIX[mix].name}`);
+  if (settings.mode === 'dj') notice(mix === 'long' ? 'DJ · 한 장르를 오래 틀어요' : `DJ · ${DJ_MIX[mix].name} 다른 장르로`);
+  return settings;
 }
 
 // 모드 바꾸기 (우클릭 메뉴 · 설정 맨 위). 설정 창의 "저장"은 모드를 안 건드려요 (창이 열린 사이 메뉴로 바꾼 걸 되돌리지 않게)
@@ -1951,12 +1994,12 @@ async function otherPlaylist() {
   return playGenre(g, { why: '다른 플리 ·', src: meta.src || 'gesture', p: meta.p ?? null });
 }
 
-async function playGenre(g, { auto = false, why = '', src = auto ? 'schedule' : 'gesture', p = null } = {}) {
+async function playGenre(g, { auto = false, why = '', src = auto ? 'schedule' : 'gesture', p = null, randomStart = false } = {}) {
   endSession(!auto); // 앞에 틀던 플리 점수 매기기 (시간대·자리 비움으로 바뀐 건 "별로"로 안 침)
   try {
     let via = platform();
     const other = g.query ? g : { ...g, query: g.playlist?.name || g.genre }; // 다른 플랫폼엔 내 Spotify 플리가 없으니 이름으로 검색
-    let played = via === 'spotify' ? await playGenreSpotify(g) : await players[via].playGenre(other);
+    let played = via === 'spotify' ? await playGenreSpotify(g, { randomStart }) : await players[via].playGenre(other);
     // 고른 플랫폼에서 못 틀면 (Spotify 무료·기기 없음, Apple 보관함에 없음, 멜론, YT Music 로그인 전) → 유튜브로
     if (!played && via !== 'youtube') {
       const from = via;
@@ -2137,6 +2180,7 @@ ipcMain.handle('auto:export-prior', async () => {
 
 ipcMain.handle('settings:get', () => ({
   settings, actions: CONTROL_ACTIONS, platforms: PLATFORMS, sources: SOURCES, modes: MODES,
+  djMix: Object.fromEntries(Object.entries(DJ_MIX).map(([k, v]) => [k, v.name])),
   piStream: streamUrl(), // 지금 고른 카메라의 영상 주소 (파이 또는 맥북)
   hasPi: !!loadConfig().pi,
   gestureHelp: gestureHelp(), // 플랫폼마다 제스처가 하는 일
@@ -2208,7 +2252,8 @@ ipcMain.handle('pi:import', async () => {
   } catch {}
   return { ok: true };
 });
-ipcMain.handle('settings:save', (_e, next) => saveSettings({ ...next, mode: settings.mode })); // 모드는 setMode 로만
+ipcMain.handle('settings:save', (_e, next) => saveSettings({ ...next, dj: settings.dj, mode: settings.mode })); // 모드 · DJ 섞기는 바로 바꾸는 버튼으로만
+ipcMain.handle('settings:dj', (_e, mix) => setDjMix(mix));
 ipcMain.handle('settings:mode', (_e, mode) => setMode(mode));
 ipcMain.handle('spotify:playlists', () => myPlaylists());
 ipcMain.handle('fav:list', () => favoritesSummary());
@@ -2765,9 +2810,15 @@ ipcMain.on('context-menu', async () => {
     {
       // 보통 / 인식만 / DJ
       label: `모드 (${MODES[settings.mode]})`,
-      submenu: Object.entries(MODES).map(([id, name]) => ({
-        label: `${name} — ${MODE_HELP[id]}`, type: 'radio', checked: settings.mode === id, click: () => setMode(id),
-      })),
+      submenu: [
+        ...Object.entries(MODES).map(([id, name]) => ({
+          label: `${name} — ${MODE_HELP[id]}`, type: 'radio', checked: settings.mode === id, click: () => setMode(id),
+        })),
+        { type: 'separator' },
+        ...Object.entries(DJ_MIX).map(([id, m]) => ({
+          label: `DJ 장르 바꾸기: ${m.name}`, type: 'checkbox', checked: settings.dj.mix === id, click: () => setDjMix(id),
+        })),
+      ],
     },
     {
       // 제스처를 알아볼 카메라: 라즈베리파이 웹캠 / 맥북 카메라 / 끄기

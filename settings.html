@@ -88,6 +88,11 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   .modes button.on { border-color: var(--accent); background: rgba(139,108,255,.12); box-shadow: inset 0 0 0 1px var(--accent); }
   .modes button.on b { color: var(--accent); }
 
+  /* DJ 장르 섞기 (DJ 카드 아래) */
+  .mix { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .mix > span { color: var(--sub); font-size: 12.5px; }
+  .seg.small button { height: 28px; padding: 0 12px; font-size: 12.5px; }
+
   /* 상황 엔진이 볼 것 (입력 칸) */
   .fields { display: flex; flex-direction: column; gap: 12px; background: var(--panel); border-radius: 12px; padding: 14px; }
   .field { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px 12px; align-items: center; }
@@ -276,6 +281,9 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
       <h2>모드</h2>
       <p class="lead">누르면 바로 바뀌어요 (저장 안 눌러도 돼요). 노치 우클릭 → 모드에서도 바꿀 수 있어요.</p>
       <div class="modes" id="modes"></div>
+      <div class="mix" id="djMixRow" style="display:none">
+        <span>장르 바꾸기</span><div class="seg small" id="djMix"></div>
+      </div>
       <div class="note" id="modeNote"></div>
     </div>
 
@@ -551,9 +559,10 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   const MODE_NOTES = {
     normal: '제스처를 알아보면 바로 장르를 틀거나 넘기고 볼륨을 바꿔요.',
     watch: '노치에 "인식만 · 다음 곡"처럼 무엇을 했을지만 보여줘요. 동작을 연습할 때나, 수업 · 발표 중에 손이 움직여도 음악이 안 바뀌게 할 때 써요. (우클릭 → 제스처 테스트는 그대로 조작돼요)',
-    dj: '노래 중간엔 끊지 않고, 곡이 바뀌는 순간에만 다시 골라요.<ul>'
-      + '<li>같은 장르를 40분 넘게 틀었는데 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨)이 바뀌면 → 다시 골라요</li>'
-      + '<li>한 장르를 90분 넘게 틀거나, 4분 안에 3곡을 금방 넘기면 → 다른 장르로</li>'
+    dj: '여러 장르를 섞어서 틀어요. 노래 중간엔 끊지 않아요.<ul>'
+      + '<li><b>장르 바꾸기</b>: 정한 곡 수마다 곡이 끝나기 직전에 엔진이 다음 장르를 골라요. 지금 장르와 방금 튼 장르는 빼고, 지금 상황에 맞는 것 중에서</li>'
+      + '<li>"한 장르 오래"면 40분 넘게 틀었는데 상황(시간대 · 하는 일 · 일정 · 혼자/여럿 · 날씨)이 바뀌거나, 90분이 넘으면 바꿔요</li>'
+      + '<li>4분 안에 3곡을 금방 넘기면 → 안 맞는 거니까 바로 다른 장르로 · 새 플리는 무작위 곡부터</li>'
       + '<li>플리가 끝나면 → 이어서 · 앱에서 직접 다른 걸 틀면 → 그 곡이 끝난 뒤 엔진이 이어 가요</li>'
       + '<li>장르 제스처 · 시간대별 장르는 안 써요. 넘김 · 좋아요 · 볼륨 · 멈춤은 그대로 (엔진이 배우는 점수). "알아서 틀기" = 다른 장르로</li>'
       + '<li>곡 중간에 멈추면 그대로 두고, 다시 틀면 이어서 DJ 해요</li></ul>',
@@ -570,7 +579,23 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
       drawSummary();
     };
   }
+  // DJ 장르 섞기: 곡마다 / 3곡마다 / 한 장르 오래 — 누르면 바로 (모드처럼 저장과 따로)
+  function drawDjMix(list) {
+    $('djMix').innerHTML = Object.entries(list).map(([id, name]) => `<button data-id="${id}">${name}</button>`).join('');
+    $('djMix').onclick = async (e) => {
+      const id = e.target.closest('button')?.dataset.id;
+      if (!id) return;
+      const s = await api.setDjMix(id);
+      saved.dj = s.dj; // 저장 비교(readAll)와 어긋나지 않게
+      showDjMix(s.dj.mix);
+    };
+  }
+  function showDjMix(id) {
+    document.querySelectorAll('#djMix button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
+  }
+
   function showMode(id) {
+    $('djMixRow').style.display = id === 'dj' ? '' : 'none';
     document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
     $('modeNote').innerHTML = `<b>${names.modes[id] || ''}</b> · ${MODE_NOTES[id] || ''}`;
   }
@@ -809,6 +834,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
       smooth: { on: $('smoothOn').checked }, // (main.js cleanSettings 와 같은 순서: 바뀜 비교가 글자 그대로라서)
       learn: { on: $('learnOn').checked },
       situation: { city: $('sitCity').value.trim().slice(0, 40), ical: $('sitIcal').value.trim(), apps: $('sitApps').checked },
+      dj: saved ? saved.dj : { mix: 'few' }, // DJ 장르 섞기도 버튼이 바로 바꿈
       mode: saved ? saved.mode : 'normal', // 모드는 위 버튼이 바로 바꿈 (저장은 안 건드림)
     };
   }
@@ -816,6 +842,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   function drawAll(s) {
     rowsOf('genres').concat(rowsOf('controls'), rowsOf('slots')).forEach((r) => r.remove());
     showMode(s.mode || 'normal');
+    showDjMix(s.dj?.mix || 'few');
     $('fbSound').checked = s.feedback.sound;
     $('smoothOn').checked = s.smooth.on;
     $('learnOn').checked = s.learn.on;
@@ -1212,6 +1239,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     gestureHelp = r.gestureHelp || {};
     $('piAddr').value = r.piAddr || '';
     drawModes(r.modes || { normal: '보통', watch: '인식만', dj: 'DJ' });
+    drawDjMix(r.djMix || { every: '곡마다', few: '3곡마다', long: '한 장르 오래' });
     drawPlatforms(r.platforms);
     drawSources(r.sources);
     drawAll(saved);
