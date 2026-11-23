@@ -12,24 +12,25 @@ Spotify · Apple Music · YouTube (Music) · 멜론에서 돼요.
 - **알아서 단골 · 부드러운 전환 · 같은 장르 다른 플리 · 내 플레이리스트**
 - **하드웨어 (선택)**: 라즈베리파이 + 웹캠 + OLED 3개 + 3D 프린트 케이스 (`pi/`, `case/`)
 
-## ⬇️ 다운로드 (macOS · 애플 실리콘)
+## ⬇️ 설치 (macOS · 애플 실리콘)
 
-**가장 쉬운 방법 — 터미널에 한 줄** (경고창 없이 바로 열려요)
+**터미널**(⌘ + Space → "터미널")을 열고 이 한 줄을 붙여 넣은 뒤 Enter:
 
 ```bash
 curl -fsSL https://github.com/2612-oss/pg/releases/latest/download/install.sh | bash
 ```
 
-**또는 dmg 로** — [Snaptune.dmg 받기](https://github.com/2612-oss/pg/releases/latest/download/Snaptune.dmg)
+최신 버전을 받아 응용 프로그램 폴더에 설치하고 바로 켜 줘요. 경고창 없이 열리고, 업데이트할 때도 같은 줄을 다시 치면 돼요.
+켜지면 노치에 마우스를 올려 **Spotify 로그인** (독에는 아이콘이 없어요. 노치 우클릭 → 설정…)
 
-1. `Snaptune.dmg` 를 열고 **Snaptune** 을 **Applications** 폴더로 끌어다 놓기
-2. Snaptune 을 열면 **"Snaptune"이(가) 열리지 않음** 이 떠요 → **완료** 누르기
-   (애플 공증을 안 받은 앱이라 맥이 한 번 막아요. 우클릭 → 열기로는 안 넘어가요)
-3. **시스템 설정 → 개인정보 보호 및 보안** → 맨 아래 *"Snaptune"이(가) 차단되었습니다* 옆 **그래도 열기** → 암호 입력 → **그래도 열기**
-   (2번을 하고 1시간 안에 해야 버튼이 보여요)
-4. 노치에 마우스를 올려 **Spotify 로그인**
+<details>
+<summary>터미널 없이 dmg 로 설치하기</summary>
 
-그래도 안 열리면 터미널에: `xattr -dr com.apple.quarantine /Applications/Snaptune.app`
+1. [Snaptune.dmg 받기](https://github.com/2612-oss/pg/releases/latest/download/Snaptune.dmg) → 열고 **Snaptune** 을 **Applications** 로 끌어다 놓기
+2. Snaptune 을 열면 **"열리지 않음"** → **완료** (애플 공증을 안 받은 앱이라 맥이 한 번 막아요)
+3. **시스템 설정 → 개인정보 보호 및 보안** → 맨 아래 **그래도 열기** → 암호 → **그래도 열기** (2번 후 1시간 안에)
+
+</details>
 
 > Snaptune 은 Spotify 와 관계없는 개인 프로젝트예요. Spotify 는 Spotify AB 의 상표이고, 이 앱은 공개된 Spotify Web API 를 써요.
 > (예전 이름: Spotify Notch. 예전 앱의 로그인 · 설정 · 기록은 처음 켤 때 자동으로 옮겨 와요.)
