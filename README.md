@@ -12,6 +12,14 @@ Spotify · Apple Music · YouTube (Music) · 멜론에서 돼요.
 - **알아서 단골 · 부드러운 전환 · 같은 장르 다른 플리 · 내 플레이리스트**
 - **하드웨어 (선택)**: 라즈베리파이 + 웹캠 + OLED 3개 + 3D 프린트 케이스 (`pi/`, `case/`)
 
+## ⬇️ 다운로드
+
+<p><a href="https://github.com/2612-oss/pg/releases/latest/download/Snaptune.dmg"><b>Snaptune.dmg 받기</b></a> (macOS · 애플 실리콘)</p>
+
+1. 받은 `Snaptune.dmg` 를 열고 **Snaptune** 을 **Applications** 폴더로 끌어다 놓기
+2. 처음 열 때 "열 수 없음"이 뜨면 → 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기**
+3. 노치에 마우스를 올려 **Spotify 로그인** (자세한 건 dmg 안의 `설치 안내.txt`)
+
 > Snaptune 은 Spotify 와 관계없는 개인 프로젝트예요. Spotify 는 Spotify AB 의 상표이고, 이 앱은 공개된 Spotify Web API 를 써요.
 > (예전 이름: Spotify Notch. 예전 앱의 로그인 · 설정 · 기록은 처음 켤 때 자동으로 옮겨 와요.)
 
@@ -20,7 +28,7 @@ Spotify · Apple Music · YouTube (Music) · 멜론에서 돼요.
 **앱으로 (평소)**: Launchpad 나 Spotlight 에서 **Snaptune** 을 켜요. 끄기는 노치 우클릭 → 종료.
 노치 우클릭 메뉴에서 **로그인할 때 자동 실행**, **라즈베리파이 인식 켜기/끄기**도 할 수 있어요.
 코드를 고쳤으면 `npm run app` 으로 앱을 다시 만들어요 (응용 프로그램 폴더에 덮어쓰고 다시 켬).
-다른 사람에게 줄 설치 파일은 `npm run dist` → `dist/Snaptune.dmg` (내 라즈베리파이·맥 주소는 빼고, `설치 안내.txt` 를 같이 넣어요).
+다른 사람에게 줄 설치 파일은 `npm run dist`, 깃허브 Releases 에 올리기는 `npm run release` (처음 한 번 `brew install gh` · `gh auth login`) → `dist/Snaptune.dmg` (내 라즈베리파이·맥 주소는 빼고, `설치 안내.txt` 를 같이 넣어요).
 
 앱 안의 `config.json` 은 고치기 어려워서, 바꾸고 싶은 값만
 `~/Library/Application Support/snaptune/config.json` 에 적으면 덮어써요. 예) `{ "pi": "ubuntu@192.168.0.10", "piStream": "http://192.168.0.10:8090/stream" }`

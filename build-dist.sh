@@ -16,7 +16,7 @@ trap 'rm -rf "$WORK"' EXIT
 # 1) 깨끗한 복사본 (개인 설정 빼기)
 SRC="$WORK/src"
 rsync -a --exclude '.DS_Store' --exclude 'pi/.venv' --exclude 'pi/models' --exclude 'pi/data' --exclude 'pi/__pycache__' \
-  --exclude 'banner' --exclude 'case' --exclude 'dist' --exclude 'brand/make_icon.py' --exclude 'pi/config.local.json' --exclude 'README*' --exclude 'build-*.sh' --exclude '설치 안내.txt' ./ "$SRC/"
+  --exclude 'banner' --exclude 'case' --exclude 'dist' --exclude 'brand/make_icon.py' --exclude 'pi/config.local.json' --exclude 'README*' --exclude 'build-*.sh' --exclude 'release.sh' --exclude '설치 안내.txt' ./ "$SRC/"
 # 주석 속 예시 주소도 내 것 대신 가짜 주소로
 perl -pi -e 's/10\.150\.\d+\.\d+/192.168.0.10/g' "$SRC/main.js"
 node -e '

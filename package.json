@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "app": "./build-app.sh",
-    "dist": "./build-dist.sh"
+    "dist": "./build-dist.sh",
+    "release": "./release.sh"
   },
   "devDependencies": {
     "electron": "^33.2.0"
