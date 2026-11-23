@@ -427,9 +427,26 @@ const CONTROLS = {
   previous: ['POST', '/me/player/previous'],
 };
 
+/* Spotify 맥 앱 직접 조작 (AppleScript)
+   Web API 재생 조작은 Premium 전용이라 무료 계정은 403 이 와요. 그런데 이 맥에서 Spotify 앱이 켜져 있으면
+   앱에게 직접 시키는 건 무료 계정도 돼요 → API 가 막히면 이걸로 대신 함. 앱이 꺼져 있으면 null. */
+function spotifyApp(cmd) {
+  return new Promise((resolve) => {
+    execFile('/usr/bin/osascript', ['-e', `if application "Spotify" is running then
+      tell application "Spotify"
+        ${cmd}
+      end tell
+      return "ok"
+    end if
+    return "off"`], { timeout: 5000 }, (err, out) => resolve(err ? null : out.trim() === 'off' ? null : out.trim()));
+  });
+}
+const APP_CMD = { play: 'play', pause: 'pause', toggle: 'playpause', next: 'next track', previous: 'previous track' };
+
 async function control(action) {
   // 'toggle' 은 지금 상태를 보고 play / pause 중 하나로 바꿈 (제스처 하나로 재생/정지)
-  if (action === 'toggle') action = currentTrack?.isPlaying ? 'pause' : 'play';
+  // 멜론처럼 지금 상태를 모르는 플랫폼은 ⏯ 하나로 (상태를 짐작해서 틀리게 누르지 않게)
+  if (action === 'toggle' && !(active !== 'spotify' && players[active].nativeToggle)) action = currentTrack?.isPlaying ? 'pause' : 'play';
   if (action === 'auto') return playAuto(); // 어느 플랫폼이든 (장르 재생과 같은 길)
   if (action === 'other_playlist') return otherPlaylist();
   // Spotify 가 아니면 그 플랫폼 담당(players/)에게 넘김
@@ -447,14 +464,19 @@ async function control(action) {
   if (action === 'like') return toggleLike().catch((e) => console.error(e.message));
   if (action === 'volume_up') return changeVolume(+VOLUME_STEP);
   if (action === 'volume_down') return changeVolume(-VOLUME_STEP);
-  const request = CONTROLS[action];
+  let request = CONTROLS[action];
   if (!request) return;
   if (action === 'next') countSkip();
+  // 이전: 5초 넘게 들었으면 이 곡 처음으로 (Spotify 앱의 ⏮ 버튼과 같게)
+  if (action === 'previous' && currentTrack?.progress > 5000) request = ['PUT', '/me/player/seek?position_ms=0'];
   try {
     const res = await spotifyApi(...request);
-    if (res.status === 403) notice('재생 조작은 Spotify Premium에서만 돼요');
-    else if (res.status === 404) notice('재생 중인 기기를 찾지 못했어요');
-    else if (!res.ok) notice('조작에 실패했어요');
+    if (res.status === 403 || res.status === 404) {
+      // 무료 계정(403)이거나 재생 기기를 못 찾으면(404) → 이 맥의 Spotify 앱에 직접
+      const cmd = request[1].includes('seek') ? 'set player position to 0' : APP_CMD[action];
+      if (await spotifyApp(cmd)) return pollSoon();
+      notice(res.status === 403 ? '무료 계정은 맥의 Spotify 앱이 켜져 있어야 조작돼요' : '재생 중인 기기를 찾지 못했어요');
+    } else if (!res.ok) notice('조작에 실패했어요');
   } catch (e) {
     console.error(e.message);
     notice('조작에 실패했어요');
@@ -466,13 +488,20 @@ async function control(action) {
 const VOLUME_STEP = 10;
 async function changeVolume(delta) {
   try {
+    // 무료 계정·볼륨 못 바꾸는 기기 → 이 맥의 Spotify 앱 볼륨으로
+    const appVolume = async () => {
+      if ((await spotifyApp(`set sound volume to ((sound volume) + (${delta}))`)) === null) return false;
+      notice(`Spotify 앱 볼륨 ${delta > 0 ? '+' : '−'}${Math.abs(delta)}`);
+      if (delta > 0 && session) session.volUp = true;
+      return true;
+    };
     const res = await spotifyApi('GET', '/me/player');
-    if (res.status !== 200) return notice('재생 중인 기기를 찾지 못했어요');
+    if (res.status !== 200) return (await appVolume()) || notice('재생 중인 기기를 찾지 못했어요');
     const device = (await res.json()).device;
-    if (!device?.supports_volume) return notice('이 기기는 볼륨 조절이 안 돼요');
+    if (!device?.supports_volume) return (await appVolume()) || notice('이 기기는 볼륨 조절이 안 돼요');
     const v = Math.max(0, Math.min(100, device.volume_percent + delta));
     const r = await spotifyApi('PUT', `/me/player/volume?volume_percent=${v}`);
-    if (r.status === 403) return notice('볼륨 조절은 Spotify Premium에서만 돼요');
+    if (r.status === 403) return (await appVolume()) || notice('볼륨 조절은 Spotify Premium에서만 돼요');
     notice(r.ok ? `볼륨 ${v}%` : '볼륨을 바꾸지 못했어요');
     if (r.ok && delta > 0 && session) session.volUp = true; // 보상: 볼륨을 올림
   } catch (e) {
@@ -624,12 +653,13 @@ function saveSettings(next) {
 // 제스처 이름 → { kind: 'genre', item } 또는 { kind: 'control', item }
 // 플랫폼마다 제스처가 실제로 하는 일 — 설정 화면의 플랫폼 안내에 보여줌 (null = 그 플랫폼에선 안 됨)
 const SPOTIFY_GESTURES = {
-  next: '다음 곡', previous: '이전 곡', toggle: '재생 / 일시정지',
+  next: '다음 곡', previous: '이전 곡 · 5초 넘게 들었으면 처음으로', toggle: '재생 / 일시정지',
   volume_up: '재생 중인 기기 볼륨 +10', volume_down: '재생 중인 기기 볼륨 −10', like: '좋아요 (내 라이브러리에 저장)',
   genre: '장르에 맞는 플리만 걸러서 틀기 · 단골 플리를 배움',
+  note: 'Premium 이 아니면 맥의 Spotify 앱을 켜 두세요 → 재생·넘김·볼륨·장르 재생을 앱에 직접 시켜요 (무료는 셔플).',
 };
 const gestureHelp = () => Object.fromEntries(Object.keys(PLATFORMS).map((id) =>
-  [id, { ...(id === 'spotify' ? SPOTIFY_GESTURES : players[id].gestures), other_playlist: '같은 장르의 다른 플리', auto: '상황 엔진이 장르를 골라 틀기' }]));
+  [id, { other_playlist: '같은 장르의 다른 플리', auto: '상황 엔진이 장르를 골라 틀기', ...(id === 'spotify' ? SPOTIFY_GESTURES : players[id].gestures) }]));
 
 function findGesture(name) {
   const genre = settings.genres.find((g) => g.gesture === name);
@@ -698,7 +728,12 @@ async function startPlayback(body) {
     if (!device) return notice('Spotify 앱을 먼저 켜 주세요'), false;
     res = await spotifyApi('PUT', `/me/player/play?device_id=${device.id}`, body);
   }
-  if (res.status === 403) return notice('재생 조작은 Spotify Premium에서만 돼요'), false;
+  if (res.status === 403) {
+    // 무료 계정: 맥의 Spotify 앱에 그 플리를 틀라고 직접 시킴 (무료는 셔플로 나와요)
+    const uri = body?.context_uri || body?.uris?.[0];
+    if (uri && /^spotify:[a-z]+:[A-Za-z0-9]+$/.test(uri) && (await spotifyApp(`play track "${uri}"`))) return pollSoon(), true;
+    return notice('무료 계정은 맥의 Spotify 앱을 켜 두면 장르 재생이 돼요'), false;
+  }
   if (!res.ok) return notice('재생하지 못했어요'), false;
   pollSoon();
   return true;

@@ -68,20 +68,25 @@ end run`;
 const GENRE = `
 on run argv
   set gname to item 1 of argv
+  set skipName to item 2 of argv -- 방금 튼 플리 ("같은 장르 다른 플리"면 이건 빼고 고름)
   tell application "Music"
-    -- ① 내 플레이리스트 중 이름에 장르/검색어가 들어간 것
-    repeat with i from 2 to (count of argv)
+    -- ① 내 플레이리스트 중 이름에 장르/검색어가 들어간 것 → 그중 무작위 하나 (방금 튼 건 빼고)
+    set cands to {}
+    repeat with i from 3 to (count of argv)
       set q to (item i of argv) as text
       repeat with p in (every user playlist whose name contains q)
-        if (name of p) does not start with "Notch · " and (count of tracks of p) > 0 then
-          set shuffle enabled to true
-          play p
-          return "ok" & (ASCII character 31) & (name of p)
-        end if
+        set pn to name of p
+        if pn does not start with "Notch · " and pn is not skipName and (count of tracks of p) > 0 and cands does not contain pn then set end of cands to pn
       end repeat
     end repeat
-    -- ② 보관함에서 장르가 맞는 곡을 모아 "Notch · 락" 플레이리스트로
-    repeat with i from 2 to (count of argv)
+    if (count of cands) > 0 then
+      set pn to some item of cands
+      set shuffle enabled to true
+      play user playlist pn
+      return "ok" & (ASCII character 31) & pn
+    end if
+    -- ② 보관함에서 장르가 맞는 곡을 모아 "Notch · 락" 플레이리스트로 (60곡 넘으면 매번 다른 구간)
+    repeat with i from 3 to (count of argv)
       set q to (item i of argv) as text
       set ts to (every track of library playlist 1 whose genre contains q)
       set n to (count of ts)
@@ -89,8 +94,12 @@ on run argv
         set plName to "Notch · " & gname
         if (exists user playlist plName) then delete user playlist plName
         set np to make new user playlist with properties {name:plName}
-        if n > 60 then set n to 60
-        repeat with k from 1 to n
+        set startAt to 1
+        if n > 60 then
+          set startAt to random number from 1 to (n - 59)
+          set n to 60
+        end if
+        repeat with k from startAt to (startAt + n - 1)
           duplicate (item k of ts) to np
         end repeat
         set shuffle enabled to true
@@ -103,6 +112,7 @@ on run argv
 end run`;
 
 function createApple() {
+  const lastPlaylist = new Map(); // 장르 → 방금 튼 플리 이름 (다음엔 다른 걸)
   const artCache = new Map(); // 곡 id → 그림 (data: 주소) 또는 ''
   const artFile = () => path.join(app.getPath('temp'), 'snaptune-artwork');
 
@@ -148,19 +158,23 @@ function createApple() {
       };
     },
 
+    nativeToggle: true, // 음악 앱의 playpause 로 바로 (상태를 다시 묻지 않아 빠름)
+    cooldown: 1000, // 맥 안에서 바로 바뀌어서 짧게
     gestures: {
       next: '다음 곡', previous: '이전 곡 · 3초 넘게 들었으면 처음으로', toggle: '재생 / 일시정지',
       volume_up: '음악 앱 볼륨 +10', volume_down: '음악 앱 볼륨 −10', like: '즐겨찾기(♥) 켜고 끄기',
-      genre: '내 보관함에서 찾고, 없으면 유튜브로',
+      genre: '이름에 장르가 들어간 내 플리 중 무작위 → 없으면 보관함에서 장르 곡을 모아서 → 그래도 없으면 유튜브로',
+      other_playlist: '장르가 맞는 내 플리 중 방금 것 말고 다른 것 (보관함 모음이면 다른 구간)',
     },
 
     async control(action) {
       const tell = (cmd) => osa(`tell application "Music" to ${cmd}`);
       switch (action) {
+        case 'toggle': return void (await tell('playpause'));
         case 'play': return void (await tell('play'));
         case 'pause': return void (await tell('pause'));
         case 'next': return void (await tell('next track'));
-        case 'previous': return void (await tell('previous track'));
+        case 'previous': return void (await tell('back track')); // ⏮ 버튼과 같음: 3초 넘게 들었으면 처음으로, 아니면 이전 곡
         case 'volume_up':
         case 'volume_down': {
           const d = action === 'volume_up' ? 10 : -10;
@@ -187,9 +201,10 @@ function createApple() {
     // 성공하면 { context: 플레이리스트 이름, label }, 보관함에 없으면 null
     async playGenre(g) {
       const terms = [...new Set([g.genre, g.query, g.query.replace(/\s+/g, ''), g.query.replace(/\s+/g, '-')])];
-      const out = await osa(GENRE, [g.genre, ...terms], 40000);
+      const out = await osa(GENRE, [g.genre, lastPlaylist.get(g.genre) || '', ...terms], 40000);
       if (!out || !out.startsWith('ok')) return null;
       const name = out.split(SEP)[1];
+      lastPlaylist.set(g.genre, name);
       return { context: name, label: name };
     },
 

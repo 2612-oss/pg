@@ -38,11 +38,14 @@ function createMelon() {
   return {
     name: '멜론',
     needsLogin: false,
+    nativeToggle: true, // 재생 중인지 알 수 없으니 ⏯ 키 하나로 (짐작해서 잘못 누르지 않게)
+    cooldown: 900, // 키 누르기는 바로 먹혀서 짧게
     gestures: {
       next: '다음 곡 (⏭ 키)', previous: '이전 곡 (⏮ 키)', toggle: '재생 / 일시정지 (⏯ 키)',
       volume_up: '맥 전체 볼륨 +10', volume_down: '맥 전체 볼륨 −10',
       like: null, // 안 됨
-      genre: '유튜브로 대신 틀어요',
+      genre: '유튜브로 대신 틀어요 (멜론은 밖에서 플리를 고를 수 없어요)',
+      note: '멜론 앱이 마지막으로 소리를 낸 앱이어야 ⏯ ⏭ ⏮ 키가 멜론으로 가요.',
     },
 
     // 곡 정보를 읽을 수 없어서 버튼이 눌리도록 자리만 채운 가짜 곡을 돌려줌
@@ -56,8 +59,12 @@ function createMelon() {
 
     async control(action) {
       switch (action) {
+        case 'toggle':
+          playing = !playing;
+          return (await press(KEY.play)) === null ? '키를 누르지 못했어요 (손쉬운 사용 권한을 확인하세요)' : null;
         case 'play':
         case 'pause':
+          if (playing === (action === 'play')) return null; // 이미 그 상태로 보이면 안 누름 (⏯ 는 토글이라)
           playing = action === 'play';
           return (await press(KEY.play)) === null ? '키를 누르지 못했어요 (손쉬운 사용 권한을 확인하세요)' : null;
         case 'next':

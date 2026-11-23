@@ -142,14 +142,22 @@ function createYouTube({ music = false } = {}) {
     needsLogin: false,
     cooldown: 1600, // 영상 넘김·페이지 로딩이 음악 앱보다 느려서 제스처 사이를 조금 더 띄움
     // 이 플랫폼에서 각 제스처가 실제로 하는 일 (설정 화면 안내)
+    nativeToggle: true, // 비디오 태그의 실제 상태를 보고 바로 뒤집음
     gestures: {
-      next: '다음 영상 · 긴 믹스 영상은 다음 챕터(곡) · 광고면 건너뛰기',
-      previous: '이전 영상 · 긴 믹스는 이전 챕터 · 5초 넘게 봤으면 처음으로',
-      toggle: '재생 / 일시정지',
-      volume_up: '유튜브 플레이어 볼륨 +10',
+      ...(music ? {
+        next: '다음 곡 (플레이어 바) · 광고면 건너뛰기',
+        previous: '이전 곡 (플레이어 바, 3초 넘게 들었으면 처음으로)',
+      } : {
+        next: '다음 영상 · 긴 믹스 영상은 다음 챕터(곡) · 광고면 건너뛰기',
+        previous: '이전 영상 · 긴 믹스는 이전 챕터 · 5초 넘게 봤으면 처음으로',
+      }),
+      toggle: '재생 / 일시정지 (영상의 실제 상태를 보고)',
+      volume_up: '유튜브 플레이어 볼륨 +10 (맥 볼륨은 그대로)',
       volume_down: '유튜브 플레이어 볼륨 −10',
       like: '로그인했으면 좋아요, 아니면 이 플리를 장르 단골로 기억',
       genre: music ? '유튜브 뮤직에서 플리 검색 (로그인 전엔 유튜브로)' : '유튜브 플레이리스트 검색 · 단골 플리를 먼저',
+      other_playlist: '같은 장르에서 최근 5개 말고 다른 플리',
+      note: music ? '한국에선 프리미엄 로그인이 있어야 유튜브 뮤직에서 재생돼요.' : '광고가 나오면 건너뛰기 버튼이 뜨자마자 자동으로 눌러요.',
     },
 
     // 장르 틀기. 성공하면 { context, label }, 못 찾으면 null
@@ -210,6 +218,7 @@ function createYouTube({ music = false } = {}) {
       const bar = (cls) => `document.querySelector('ytmusic-player-bar ${cls}')?.click()`;
       const player = `document.getElementById('movie_player')`;
       switch (action) {
+        case 'toggle': return void run(`(() => { const v = document.querySelector('video'); if (v) v.paused ? v.play() : v.pause(); })()`);
         case 'play': return void run(`document.querySelector('video')?.play()`);
         case 'pause': return void run(`document.querySelector('video')?.pause()`);
         case 'next':

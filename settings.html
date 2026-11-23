@@ -408,7 +408,8 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     const name = (a) => (a === 'genre' ? '장르 제스처' : actions[a] || a);
     const order = ['genre', 'next', 'previous', 'toggle', 'volume_up', 'volume_down', 'like', 'other_playlist', 'auto'];
     return '<div style="margin-top:8px"><b>이 플랫폼에서 제스처는</b></div>' + order.filter((a) => a in h).map((a) =>
-      `<div>· ${name(a)} → ${h[a] ? h[a] : '<span style="opacity:.6">안 돼요</span>'}</div>`).join('');
+      `<div>· ${name(a)} → ${h[a] ? h[a] : '<span style="opacity:.6">안 돼요</span>'}</div>`).join('')
+      + (h.note ? `<div style="margin-top:6px">💡 ${h.note}</div>` : '');
   }
 
   const rowsOf = (listId) => [...document.querySelectorAll(`#${listId} .item:not(.head-row)`)];
