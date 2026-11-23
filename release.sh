@@ -17,7 +17,7 @@ gh auth status >/dev/null 2>&1 || { echo "깃허브 로그인이 필요해요: g
 # 라즈베리파이 코드 묶음 — 파이의 updater.py 가 6시간마다 pi-version.txt 를 보고 새 버전이면 받아요
 PI_FILES=$(cd pi && ls *.py *.html *.txt *.sh *.service *.md config.json 2>/dev/null | grep -v -e '^setup-mac.sh$' | sort)
 PI_VERSION=$(cd pi && cat $PI_FILES | shasum -a 1 | cut -c1-12)
-(cd pi && COPYFILE_DISABLE=1 tar -czf ../dist/pi-code.tar.gz $PI_FILES)
+(cd pi && COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf ../dist/pi-code.tar.gz $PI_FILES)
 echo "$PI_VERSION $(shasum -a 256 dist/pi-code.tar.gz | cut -d' ' -f1)" > dist/pi-version.txt
 echo "파이 코드 $PI_VERSION"
 ASSETS=(dist/Snaptune.dmg install.sh pi-install.sh dist/pi-code.tar.gz dist/pi-version.txt)

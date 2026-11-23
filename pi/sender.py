@@ -14,19 +14,31 @@ sender.py — 맥 노치 앱과 이야기하기 (HTTP)
 
 import json
 import threading
+import time
 import urllib.request
+
+FRESH = 60  # 이 시간 안에 "나 여기 있어" 한 맥만 받는 쪽으로 침 (맥 앱은 20초마다 알려줌)
 
 
 class MacClient:
     def __init__(self, base):
         self.configured = (base or "").rstrip("/")
-        self.learned = None  # 맥 앱이 알려준 주소 (설정보다 먼저 씀 — 맥 IP 가 바뀌어도 따라감)
+        self.learned = {}  # 맥 앱이 알려준 주소 → 마지막으로 들은 시각 (설정보다 먼저 씀 — 맥 IP 가 바뀌어도 따라감)
         self.last_result = None  # 마지막으로 보낸 결과 (OLED/로그용)
+
+    def targets(self):
+        """제스처를 보낼 맥들. 파이 하나를 맥 여러 대가 같이 쓰면 전부에게 (각자 자기 음악을 조작)"""
+        now = time.time()
+        alive = [u for u, t in self.learned.items() if now - t < FRESH]
+        return alive or [self.base]
 
     @property
     def base(self):
-        if self.learned:
-            return self.learned
+        """곡 정보·가사를 물어볼 맥 = 가장 최근에 알려준 맥"""
+        now = time.time()
+        alive = sorted(((t, u) for u, t in self.learned.items() if now - t < FRESH), reverse=True)
+        if alive:
+            return alive[0][1]
         # "http://맥북IP:8899" 같은 자리표시는 못 씀 → 맥 앱이 알려줄 때까지 기다림
         if not self.configured or not all(c.isascii() for c in self.configured):
             return "http://127.0.0.1:8899"
@@ -34,24 +46,25 @@ class MacClient:
 
     def learn(self, ip, port=8899):
         url = f"http://{ip}:{int(port)}"
-        if url != self.learned:
-            print(f"[맥 주소] {url} (맥 앱이 알려줌)", flush=True)
-        self.learned = url
+        if url not in self.learned or time.time() - self.learned[url] >= FRESH:
+            print(f"[맥 주소] {url} 연결 (맥 앱이 알려줌)", flush=True)
+        self.learned[url] = time.time()
 
     def send(self, name):
-        threading.Thread(target=self._send, args=(name,), daemon=True).start()
+        for base in self.targets():
+            threading.Thread(target=self._send, args=(name, base), daemon=True).start()
 
-    def _send(self, name):
+    def _send(self, name, base):
         body = json.dumps({"name": name}).encode()
         req = urllib.request.Request(
-            f"{self.base}/gesture", data=body, headers={"Content-Type": "application/json"}, method="POST"
+            f"{base}/gesture", data=body, headers={"Content-Type": "application/json"}, method="POST"
         )
         try:
             with urllib.request.urlopen(req, timeout=2) as res:
                 self.last_result = json.loads(res.read() or b"null")
         except Exception as e:  # 맥이 꺼져 있거나 주소가 틀림
             self.last_result = {"ok": False, "reason": str(e)}
-        print(f"[보냄] {name} → {self.last_result}", flush=True)
+        print(f"[보냄] {name} → {base} {self.last_result}", flush=True)
 
     def lyrics(self):
         """지금 곡의 가사 { id, ready, lines: [{t, text}] 또는 None } 또는 None (맥에 연결 안 됨)"""
