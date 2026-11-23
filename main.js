@@ -1607,7 +1607,28 @@ ipcMain.handle('settings:get', () => ({
   settings, actions: CONTROL_ACTIONS, platforms: PLATFORMS, sources: SOURCES,
   piStream: streamUrl(), // 지금 고른 카메라의 영상 주소 (파이 또는 맥북)
   hasPi: !!loadConfig().pi,
+  piAddr: loadConfig().pi || '', // 'user@IP' — 설정 화면의 라즈베리파이 주소 칸
 }));
+
+// 설정 화면에서 라즈베리파이 주소를 적으면 userData/config.json 에 pi · piStream 으로 저장
+//   addr: 'ubuntu@192.168.0.10' 또는 '192.168.0.10' (사용자 이름 없으면 pi)
+ipcMain.handle('pi:connect', async (_e, addr) => {
+  const m = String(addr || '').trim().match(/^(?:([\w.-]+)@)?([\w.-]+)$/);
+  if (!m) return { ok: false, reason: '주소 형식이 이상해요 (예: ubuntu@192.168.0.10)' };
+  const [, user = 'pi', host] = m;
+  const file = path.join(app.getPath('userData'), 'config.json');
+  let c = {};
+  try { c = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+  c.pi = `${user}@${host}`;
+  c.piStream = `http://${host}:8090/stream`;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(c, null, 2) + '\n');
+  if (settings.source !== 'pi') saveSettings({ ...settings, source: 'pi' });
+  else broadcast('stream', streamUrl());
+  let online = false;
+  try { online = !!(await fetch(`http://${host}:8090/api/state`, { signal: AbortSignal.timeout(3000) })).ok; } catch {}
+  return { ok: true, pi: c.pi, online };
+});
 
 /* 설정 화면의 "제스처 학습" → 인식 프로그램(파이 또는 맥북)의 대시보드 API 를 맥이 대신 불러줌
    (설정 화면에서 바로 부르면 브라우저 보안(CORS) 때문에 막힐 수 있어서 main 에서 함)
@@ -2178,8 +2199,8 @@ ipcMain.on('context-menu', async () => {
       label: `카메라 (${SOURCES[settings.source]}${macSetup ? ' · 설치 중' : ''})`,
       submenu: Object.entries(SOURCES).map(([id, name]) => ({
         label: name, type: 'radio', checked: settings.source === id,
-        enabled: id !== 'pi' || !!loadConfig().piStream,
-        click: () => saveSettings({ ...settings, source: id }),
+        // 파이 주소가 아직 없으면 설정 창의 카메라 칸에서 주소를 적게 함
+        click: () => (id === 'pi' && !loadConfig().piStream ? openSettings() : saveSettings({ ...settings, source: id })),
       })),
     },
     {
@@ -2225,7 +2246,7 @@ ipcMain.on('context-menu', async () => {
             { label: '다시 켜기', click: () => piService('restart') },
           ],
         }]
-      : []),
+      : [{ label: '라즈베리파이 연결…', click: openSettings }]),
     // 맥에 로그인하면 자동으로 켜기 (.app 으로 실행했을 때만)
     {
       label: '로그인할 때 자동 실행',

@@ -313,6 +313,11 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   <div class="sub">제스처를 알아볼 카메라예요. 인식 방법(MediaPipe + scikit-learn)은 둘 다 같아요.</div>
   <div class="seg" id="sources"></div>
   <div class="plat-note" id="sourceNote"></div>
+  <div class="rec-row" id="piRow" style="display:none;margin-top:10px">
+    <input type="text" id="piAddr" placeholder="라즈베리파이 주소  예) ubuntu@192.168.0.10">
+    <button id="piConnect">연결</button>
+  </div>
+  <div class="sub" id="piConnMsg" style="display:none"></div>
 
   <div class="sub" style="margin-top:24px">
     제스처 이름은 위 "제스처 학습"에서 녹화·학습한 동작 이름과 같아야 해요.
@@ -355,7 +360,22 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     source = id;
     document.querySelectorAll('#sources button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
     $('sourceNote').innerHTML = SOURCE_NOTES[id] || '';
+    $('piRow').style.display = id === 'pi' ? '' : 'none'; // 플랫폼과 상관없이 파이를 고르면 주소 칸
   }
+
+  // 라즈베리파이 주소 저장 → 카메라를 파이로 바꾸고 연결되는지 확인
+  $('piConnect').onclick = async () => {
+    const msg = $('piConnMsg');
+    msg.style.display = ''; msg.textContent = '연결하는 중…';
+    const r = await api.piConnect($('piAddr').value);
+    if (!r.ok) { msg.textContent = r.reason; return; }
+    hasPi = true;
+    $('piAddr').value = r.pi;
+    saved = (await api.get()).settings;
+    setSource(saved.source);
+    await refreshStream();
+    msg.textContent = r.online ? `${r.pi} 에 연결됐어요` : `${r.pi} 로 저장했어요. 아직 응답이 없어요 — 파이에서 인식 프로그램이 켜져 있는지, 같은 와이파이인지 확인하세요`;
+  };
 
   // 플랫폼마다 되는 것 / 안 되는 것 안내
   const PLATFORM_NOTES = {
@@ -962,6 +982,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     saved = r.settings;
     piStream = r.piStream;
     hasPi = r.hasPi;
+    $('piAddr').value = r.piAddr || '';
     drawPlatforms(r.platforms);
     drawSources(r.sources);
     drawAll(saved);

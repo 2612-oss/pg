@@ -1,6 +1,6 @@
 {
   "name": "snaptune",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "맥북 노치에 붙는 Spotify 위젯 (평소엔 작게, 마우스를 올리거나 곡이 바뀌면 펼쳐짐)",
   "main": "main.js",
   "scripts": {
