@@ -1672,6 +1672,9 @@ ipcMain.handle('settings:get', () => ({
   piAddr: loadConfig().pi || '', // 'user@IP' — 설정 화면의 라즈베리파이 주소 칸
 }));
 
+// 파이 코드 업데이트 (설정 화면: 연결 직후 · 버튼)  force 면 버전이 같아도 다시 보냄
+ipcMain.handle('pi:sync', (_e, { force = false } = {}) => syncPiCode({ force, quiet: true }));
+
 // 설정 화면에서 라즈베리파이 주소를 적으면 userData/config.json 에 pi · piStream 으로 저장
 //   addr: 'ubuntu@192.168.0.10' 또는 '192.168.0.10' (사용자 이름 없으면 pi)
 ipcMain.handle('pi:connect', async (_e, addr) => {
@@ -1687,7 +1690,7 @@ ipcMain.handle('pi:connect', async (_e, addr) => {
   fs.writeFileSync(file, JSON.stringify(c, null, 2) + '\n');
   if (settings.source !== 'pi') saveSettings({ ...settings, source: 'pi' });
   else broadcast('stream', streamUrl());
-  helloPi(); // 파이에게 이 맥 주소를 바로 알려줌
+  helloPi(); // 파이에게 이 맥 주소를 바로 알려줌 (코드 업데이트는 설정 화면이 이어서 pi:sync 로)
   let online = false;
   try { online = !!(await fetch(`http://${host}:8090/api/state`, { signal: AbortSignal.timeout(3000) })).ok; } catch {}
   return { ok: true, pi: c.pi, online };
@@ -2259,6 +2262,88 @@ function ssh(command) {
   });
 }
 
+/* ---------- 라즈베리파이 코드 자동 업데이트 ----------
+   맥 앱 안에 파이 코드(pi/)가 같이 들어 있어요. 앱을 업데이트하면 파이 쪽도 맞춰야 해서,
+   파이에 연결될 때 버전(파일 내용의 해시)을 비교해서 다르면 SSH 로 새 파일을 보내고 인식 프로그램을 다시 켜요.
+     보내는 것  : 코드 파일들 (*.py, dashboard.html, requirements.txt …)
+     안 보내는 것: config.json · config.local.json (그 파이의 설정), data/ models/ .venv (녹화·학습·라이브러리)
+   requirements.txt 가 바뀌었으면 파이에서 pip install 도 해요.
+   SSH 키가 없으면(비밀번호를 물어보면) 못 보내요 → 설정 화면에 ssh-copy-id 안내. */
+const PI_SKIP = new Set(['config.json', 'config.local.json', 'setup-mac.sh']);
+function piCodeFiles() {
+  try {
+    return fs.readdirSync(gestureCode())
+      .filter((f) => !PI_SKIP.has(f) && /\.(py|html|txt|sh|service|md)$/.test(f))
+      .sort().map((f) => path.join(gestureCode(), f));
+  } catch { return []; }
+}
+function piCodeHash(files = piCodeFiles()) {
+  const h = crypto.createHash('sha1');
+  for (const f of files) h.update(path.basename(f)).update(fs.readFileSync(f));
+  return h.digest('hex').slice(0, 12);
+}
+// ssh/scp 를 돌리고 { ok, out, err } (비밀번호 물어보면 바로 실패 = BatchMode)
+function sshRun(file, args, timeout = 15000) {
+  return new Promise((resolve) => {
+    execFile(file, ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=accept-new', ...args],
+      { timeout }, (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout || '').trim(), err: String(stderr || err?.message || '').trim() }));
+  });
+}
+// 실패 이유 → 사람이 할 일
+function sshHelp(err) {
+  const pi = loadConfig().pi;
+  if (/Permission denied|publickey|password/i.test(err)) {
+    const hasKey = ['id_ed25519', 'id_rsa', 'id_ecdsa'].some((k) => fs.existsSync(path.join(app.getPath('home'), '.ssh', k)));
+    return { kind: 'key', text: '맥에서 파이로 비밀번호 없이 들어가는 SSH 키가 필요해요. 터미널에 한 번만:',
+      command: `${hasKey ? '' : "ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519 && "}ssh-copy-id ${pi}` };
+  }
+  return { kind: 'net', text: '라즈베리파이에 접속하지 못했어요 (파이가 켜져 있는지, 같은 와이파이인지, VPN 이 꺼져 있는지 확인)' };
+}
+
+let piSyncing = null;
+function syncPiCode(opts) {
+  if (!piSyncing) piSyncing = doSyncPiCode(opts).finally(() => { piSyncing = null; });
+  return piSyncing;
+}
+async function doSyncPiCode({ force = false, quiet = false } = {}) {
+  const pi = loadConfig().pi;
+  if (!pi) return { ok: false, reason: '라즈베리파이 주소가 없어요' };
+  const files = piCodeFiles();
+  if (!files.length) return { ok: false, reason: '앱 안에 파이 코드가 없어요' };
+  const want = piCodeHash(files);
+  // 1) 파이의 설치 폴더(서비스에 적힌 곳, 없으면 ~/gesture-pi)와 지금 버전
+  const info = await sshRun('/usr/bin/ssh', [pi,
+    'D=$(systemctl show -p WorkingDirectory --value gesture-pi 2>/dev/null); case "$D" in ""|/) D=$HOME/gesture-pi;; esac; '
+    + 'echo "$D"; cat "$D/.snaptune-code" 2>/dev/null || echo -; md5sum "$D/requirements.txt" 2>/dev/null | cut -d" " -f1']);
+  if (!info.ok) {
+    const help = sshHelp(info.err);
+    if (!quiet) notice(help.kind === 'key' ? '파이 코드 업데이트: SSH 키가 필요해요 (설정 → 카메라)' : help.text);
+    return { ok: false, reason: help.text, command: help.command };
+  }
+  const [dir, have, oldReq = ''] = info.out.split('\n').map((x) => x.trim());
+  if (!dir.startsWith('/')) return { ok: false, reason: '파이의 설치 폴더를 못 찾았어요' };
+  if (have === want && !force) return { ok: true, same: true, version: want };
+  if (!quiet) notice('라즈베리파이 코드 업데이트 중…');
+  // 2) 파일 보내기 (scp: 이름이 같은 파일만 덮어써요 — 설정·녹화·모델은 그대로)
+  const q = (x) => `'${x.replace(/'/g, "'\\''")}'`;
+  await sshRun('/usr/bin/ssh', [pi, `mkdir -p ${q(dir)}`]);
+  const cp = await sshRun('/usr/bin/scp', ['-q', ...files, `${pi}:${q(dir)}/`], 60000);
+  if (!cp.ok) {
+    const help = sshHelp(cp.err);
+    notice('파이 코드를 보내지 못했어요');
+    return { ok: false, reason: help.text, command: help.command };
+  }
+  // 3) 버전 기록 → 라이브러리가 바뀌었으면 설치 → 인식 프로그램 다시 켜기
+  const after = await sshRun('/usr/bin/ssh', [pi, `cd ${q(dir)} && chmod +x *.sh 2>/dev/null; echo ${want} > .snaptune-code; `
+    + `if [ -x .venv/bin/pip ] && [ "$(md5sum requirements.txt | cut -d' ' -f1)" != ${q(oldReq || '-')} ]; then .venv/bin/pip install -q -r requirements.txt >/dev/null 2>&1; fi; `
+    + `sudo -n systemctl restart gesture-pi 2>/dev/null && echo restarted || echo norestart`], 300000);
+  await refreshPiState();
+  const restarted = after.out.endsWith('restarted');
+  notice(restarted ? '라즈베리파이 코드를 새 버전으로 바꿨어요' : '파이 코드를 바꿨어요 · 우클릭 → 라즈베리파이 인식 → 다시 켜기');
+  setTimeout(helloPi, 5000); // 다시 켜진 인식 프로그램에게 맥 주소를 다시 알려줌
+  return { ok: true, updated: true, restarted, version: want };
+}
+
 async function refreshPiState() {
   if (!loadConfig().pi) return;
   const out = await ssh('systemctl is-active gesture-pi');
@@ -2326,6 +2411,8 @@ ipcMain.on('context-menu', async () => {
             { label: '켜기', click: () => piService('start') },
             { label: '끄기', click: () => piService('stop') },
             { label: '다시 켜기', click: () => piService('restart') },
+            { type: 'separator' },
+            { label: '파이 코드 업데이트', click: () => syncPiCode({ force: true }) },
           ],
         }]
       : [{ label: '라즈베리파이 연결…', click: openSettings }]),
@@ -2358,6 +2445,8 @@ app.whenReady().then(async () => {
 
   applyPlatform(); // 설정에서 고른 플랫폼으로 시작 (Spotify 면 저장된 로그인으로 바로 연결)
   applySource(); // 맥북 카메라를 골라 뒀으면 인식 프로그램 켜기
+  // 라즈베리파이를 쓰면: 앱이 업데이트돼서 파이 코드가 옛날 거면 알아서 새 버전으로 (조용히, 바뀔 때만 알림)
+  if (settings.source === 'pi' && loadConfig().pi) setTimeout(() => syncPiCode({ quiet: true }), 8000);
   startAutomation(); // 자리 비움 감지 · 시간대별 장르
 });
 

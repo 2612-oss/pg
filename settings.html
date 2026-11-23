@@ -316,8 +316,13 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   <div class="rec-row" id="piRow" style="display:none;margin-top:10px">
     <input type="text" id="piAddr" placeholder="라즈베리파이 주소  예) ubuntu@192.168.0.10">
     <button id="piConnect">연결</button>
+    <button id="piSyncBtn" title="앱에 들어 있는 파이 코드를 파이에 보내고 인식 프로그램을 다시 켜요">파이 코드 업데이트</button>
   </div>
   <div class="sub" id="piConnMsg" style="display:none"></div>
+  <div class="rec-row" id="piCmdRow" style="display:none;margin-top:6px">
+    <input type="text" id="piCmd" readonly style="font-family:ui-monospace,Menlo,monospace;font-size:12px">
+    <button id="piCmdCopy">복사</button>
+  </div>
 
   <div class="sub" style="margin-top:24px">
     제스처 이름은 위 "제스처 학습"에서 녹화·학습한 동작 이름과 같아야 해요.
@@ -374,8 +379,30 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     saved = (await api.get()).settings;
     setSource(saved.source);
     await refreshStream();
-    msg.textContent = r.online ? `${r.pi} 에 연결됐어요` : `${r.pi} 로 저장했어요. 아직 응답이 없어요 — 파이에서 인식 프로그램이 켜져 있는지, 같은 와이파이인지 확인하세요`;
+    msg.textContent = r.online ? `${r.pi} 에 연결됐어요 · 파이 코드 버전 확인 중…` : `${r.pi} 로 저장했어요. 아직 응답이 없어요 — 파이에서 인식 프로그램이 켜져 있는지, 같은 와이파이인지 확인하세요`;
+    syncPi(false);
   };
+
+  // 파이 코드를 앱과 같은 버전으로 (SSH 로 파일 보내기). SSH 키가 없으면 터미널 명령을 보여줌
+  async function syncPi(force) {
+    const msg = $('piConnMsg');
+    msg.style.display = '';
+    $('piCmdRow').style.display = 'none';
+    const before = msg.textContent.replace(/ · 파이 코드.*$/, '');
+    msg.textContent = `${before} · 파이 코드 확인 중…`;
+    const r = await api.piSync(force);
+    if (r.ok) {
+      msg.textContent = `${before} · ${r.same ? '파이 코드도 최신이에요' : r.restarted ? '파이 코드를 새 버전으로 바꾸고 다시 켰어요' : '파이 코드를 바꿨어요 (우클릭 → 라즈베리파이 인식 → 다시 켜기)'}`;
+      return;
+    }
+    msg.textContent = `${before} · ${r.reason}`;
+    if (r.command) {
+      $('piCmd').value = r.command;
+      $('piCmdRow').style.display = '';
+    }
+  }
+  $('piSyncBtn').onclick = () => syncPi(true);
+  $('piCmdCopy').onclick = () => { navigator.clipboard.writeText($('piCmd').value); $('piCmdCopy').textContent = '복사됨'; setTimeout(() => ($('piCmdCopy').textContent = '복사'), 1500); };
 
   // 플랫폼마다 되는 것 / 안 되는 것 안내
   const PLATFORM_NOTES = {
