@@ -38,6 +38,12 @@ function createMelon() {
   return {
     name: '멜론',
     needsLogin: false,
+    gestures: {
+      next: '다음 곡 (⏭ 키)', previous: '이전 곡 (⏮ 키)', toggle: '재생 / 일시정지 (⏯ 키)',
+      volume_up: '맥 전체 볼륨 +10', volume_down: '맥 전체 볼륨 −10',
+      like: null, // 안 됨
+      genre: '유튜브로 대신 틀어요',
+    },
 
     // 곡 정보를 읽을 수 없어서 버튼이 눌리도록 자리만 채운 가짜 곡을 돌려줌
     async now() {

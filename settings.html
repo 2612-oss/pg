@@ -397,7 +397,18 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   function setPlatform(id) {
     platform = id;
     document.querySelectorAll('#platforms button').forEach((b) => b.classList.toggle('on', b.dataset.id === id));
-    $('platNote').innerHTML = PLATFORM_NOTES[id] || '';
+    $('platNote').innerHTML = (PLATFORM_NOTES[id] || '') + gestureTable(id);
+  }
+
+  // 이 플랫폼에서 제스처가 실제로 하는 일 (main.js 의 gestureHelp)
+  let gestureHelp = {};
+  function gestureTable(id) {
+    const h = gestureHelp[id];
+    if (!h) return '';
+    const name = (a) => (a === 'genre' ? '장르 제스처' : actions[a] || a);
+    const order = ['genre', 'next', 'previous', 'toggle', 'volume_up', 'volume_down', 'like', 'other_playlist', 'auto'];
+    return '<div style="margin-top:8px"><b>이 플랫폼에서 제스처는</b></div>' + order.filter((a) => a in h).map((a) =>
+      `<div>· ${name(a)} → ${h[a] ? h[a] : '<span style="opacity:.6">안 돼요</span>'}</div>`).join('');
   }
 
   const rowsOf = (listId) => [...document.querySelectorAll(`#${listId} .item:not(.head-row)`)];
@@ -982,6 +993,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     saved = r.settings;
     piStream = r.piStream;
     hasPi = r.hasPi;
+    gestureHelp = r.gestureHelp || {};
     $('piAddr').value = r.piAddr || '';
     drawPlatforms(r.platforms);
     drawSources(r.sources);

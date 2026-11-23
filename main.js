@@ -622,6 +622,15 @@ function saveSettings(next) {
 }
 
 // 제스처 이름 → { kind: 'genre', item } 또는 { kind: 'control', item }
+// 플랫폼마다 제스처가 실제로 하는 일 — 설정 화면의 플랫폼 안내에 보여줌 (null = 그 플랫폼에선 안 됨)
+const SPOTIFY_GESTURES = {
+  next: '다음 곡', previous: '이전 곡', toggle: '재생 / 일시정지',
+  volume_up: '재생 중인 기기 볼륨 +10', volume_down: '재생 중인 기기 볼륨 −10', like: '좋아요 (내 라이브러리에 저장)',
+  genre: '장르에 맞는 플리만 걸러서 틀기 · 단골 플리를 배움',
+};
+const gestureHelp = () => Object.fromEntries(Object.keys(PLATFORMS).map((id) =>
+  [id, { ...(id === 'spotify' ? SPOTIFY_GESTURES : players[id].gestures), other_playlist: '같은 장르의 다른 플리', auto: '상황 엔진이 장르를 골라 틀기' }]));
+
 function findGesture(name) {
   const genre = settings.genres.find((g) => g.gesture === name);
   if (genre) return { kind: 'genre', item: genre };
@@ -633,14 +642,15 @@ function findGesture(name) {
 /* ---------- 제스처 처리 ---------- */
 
 // 한 번 조작한 뒤 이 시간 동안은 제스처를 무시 (손을 내리는 동작 때문에 두 번 넘어가는 것 방지)
-const GESTURE_COOLDOWN_MS = 1200;
+const GESTURE_COOLDOWN_MS = 1200; // 플랫폼마다 다르면 players/ 의 cooldown (유튜브는 영상 넘김이 느려서 더 김)
+const cooldownMs = () => (active !== 'spotify' && players[active].cooldown) || GESTURE_COOLDOWN_MS;
 let lastGestureAt = 0;
 
 function handleGesture(name, source = 'camera') {
   const found = findGesture(name);
   if (!found) return { ok: false, reason: `모르는 제스처: ${name}` };
   const now = Date.now();
-  if (now - lastGestureAt < GESTURE_COOLDOWN_MS) return { ok: false, reason: 'cooldown' };
+  if (now - lastGestureAt < cooldownMs()) return { ok: false, reason: 'cooldown' };
   // 지금 듣고 있는 장르와 같은 장르 제스처면 무시 (곡이 갑자기 다른 플레이리스트로 바뀌지 않게)
   if (found.kind === 'genre' && found.item.genre === currentGenre && currentTrack?.isPlaying) {
     console.log(`[제스처] ${name} → 이미 ${currentGenre} 재생 중이라 무시`);
@@ -1607,6 +1617,7 @@ ipcMain.handle('settings:get', () => ({
   settings, actions: CONTROL_ACTIONS, platforms: PLATFORMS, sources: SOURCES,
   piStream: streamUrl(), // 지금 고른 카메라의 영상 주소 (파이 또는 맥북)
   hasPi: !!loadConfig().pi,
+  gestureHelp: gestureHelp(), // 플랫폼마다 제스처가 하는 일
   piAddr: loadConfig().pi || '', // 'user@IP' — 설정 화면의 라즈베리파이 주소 칸
 }));
 

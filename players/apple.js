@@ -148,6 +148,12 @@ function createApple() {
       };
     },
 
+    gestures: {
+      next: '다음 곡', previous: '이전 곡 · 3초 넘게 들었으면 처음으로', toggle: '재생 / 일시정지',
+      volume_up: '음악 앱 볼륨 +10', volume_down: '음악 앱 볼륨 −10', like: '즐겨찾기(♥) 켜고 끄기',
+      genre: '내 보관함에서 찾고, 없으면 유튜브로',
+    },
+
     async control(action) {
       const tell = (cmd) => osa(`tell application "Music" to ${cmd}`);
       switch (action) {
