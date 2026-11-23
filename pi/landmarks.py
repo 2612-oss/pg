@@ -60,6 +60,9 @@ class Landmarker:
                 running_mode=video, num_poses=1,
                 min_pose_detection_confidence=min_conf, min_pose_presence_confidence=min_conf,
             ))
+        self.use_pose = use_pose
+        self.min_conf = min_conf
+        self.crowd = None  # 사람 수 세기용 (사진 모드, 처음 쓸 때 만듦)
         self.pool = ThreadPoolExecutor(1)  # 몸 찾기를 옆 스레드에서
         self.pose_job = None  # 지금 돌고 있는 몸 찾기
         self.last_pose, self.last_pose_at = None, 0.0  # 가장 최근에 끝난 몸 결과
@@ -100,7 +103,23 @@ class Landmarker:
         self.last_pose_at = time.monotonic()
         self.last_pose = [(1.0 - p.x, p.y, p.z, p.visibility) for p in r.pose_landmarks[0]] if r.pose_landmarks else None
 
+    def count_people(self, rgb):
+        """화면에 사람이 몇 명인지 (상황 엔진: 혼자 / 여럿). 5초에 한 번쯤만 불러요.
+        인식용 몸 찾기(1명, 영상 모드)와 따로, 작은 사진으로 최대 4명까지 한 번 찾아봐요."""
+        if not self.use_pose:
+            return None
+        if self.crowd is None:
+            self.crowd = vision.PoseLandmarker.create_from_options(vision.PoseLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(POSE_MODEL)),
+                running_mode=vision.RunningMode.IMAGE, num_poses=4,
+                min_pose_detection_confidence=self.min_conf, min_pose_presence_confidence=self.min_conf,
+            ))
+        r = self.crowd.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
+        return len(r.pose_landmarks or [])
+
     def close(self):
+        if self.crowd:
+            self.crowd.close()
         self.hands.close()
         if self.pose:
             self.pose.close()

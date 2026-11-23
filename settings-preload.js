@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('settingsApi', {
   autoForget: (x) => ipcRenderer.invoke('auto:forget', x),
   analytics: (days) => ipcRenderer.invoke('auto:analytics', { days }), // 분석 창: 지표 · 장르별 · 최근 기록
   openAnalytics: () => ipcRenderer.send('open-analytics'),
+  exportPrior: () => ipcRenderer.invoke('auto:export-prior'), // 분위기 모델 값만 파일로 (기록 없이)
   pi: (path, body) => ipcRenderer.invoke('pi:api', { path, body }),
   piConnect: (addr) => ipcRenderer.invoke('pi:connect', addr), // 라즈베리파이 주소 저장 (user@IP)
   importPi: () => ipcRenderer.invoke('pi:import'), // 라즈베리파이에서 녹화한 샘플을 맥북 쪽으로 가져와 다시 학습

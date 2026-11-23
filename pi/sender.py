@@ -66,6 +66,13 @@ class MacClient:
             self.last_result = {"ok": False, "reason": str(e)}
         print(f"[보냄] {name} → {base} {self.last_result}", flush=True)
 
+    @staticmethod
+    def _ping(url):
+        try:
+            urllib.request.urlopen(url, timeout=1.5).read()
+        except Exception:
+            pass
+
     def lyrics(self):
         """지금 곡의 가사 { id, ready, lines: [{t, text}] 또는 None } 또는 None (맥에 연결 안 됨)"""
         try:
@@ -74,12 +81,22 @@ class MacClient:
         except Exception:
             return None
 
-    def now(self, present=None):
+    def now(self, present=None, people=None):
         """지금 곡 정보를 물어봄. present(True/False)를 주면 "지금 사람이 보이는지"도 같이 알려줘요
-        → 맥이 자리 비움 감지(오래 안 보이면 멈춤)에 써요"""
-        ask = "" if present is None else f"?present={1 if present else 0}"
+        → 맥이 자리 비움 감지(오래 안 보이면 멈춤)에 써요. people = 화면의 사람 수 (상황 엔진: 혼자/여럿)
+        맥이 여러 대면 곡 정보는 가장 최근 맥에게 묻고, 사람 정보는 다른 맥들에도 같이 알려줘요."""
+        q = {}
+        if present is not None:
+            q["present"] = 1 if present else 0
+        if people is not None:
+            q["people"] = int(people)
+        ask = ("?" + "&".join(f"{k}={v}" for k, v in q.items())) if q else ""
+        main = self.base
+        for other in self.targets():
+            if other != main and ask:
+                threading.Thread(target=self._ping, args=(f"{other}/now{ask}",), daemon=True).start()
         try:
-            with urllib.request.urlopen(f"{self.base}/now{ask}", timeout=1.5) as res:
+            with urllib.request.urlopen(f"{main}/now{ask}", timeout=1.5) as res:
                 return json.loads(res.read() or b"null")
         except Exception:
             return None

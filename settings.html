@@ -264,12 +264,16 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
 
   <!-- 3. 자동 -->
   <h2>상황 엔진 · 알아서 틀기</h2>
-  <div class="sub">장르를 고르지 않아도 지금 상황(요일 · 시간대 · 날씨 · 워치)에 맞는 장르를 골라 틀어요. 틀 때마다 얼마나 들었는지 · 좋아요 · 볼륨 · 금방 바꿨는지를 점수로 남기고, 그 기록으로 "이런 상황엔 이 장르"를 배워요. 덜 들어 본 장르도 가끔 섞어서 새로 알아 가요.
+  <div class="sub">장르를 고르지 않아도 지금 상황(요일 · 시간대 · 날씨 · 워치 · 하는 일 · 캘린더 · 혼자/여럿 · 최근에 들은 것)에 맞는 장르를 골라 틀어요. "이럴 땐 신나는 게 / 잔잔한 게"는 모든 장르가 같이 배워서, 새로 만든 장르도 바로 그럴듯하게 골라요. 틀 때마다 얼마나 들었는지 · 좋아요 · 볼륨 · 금방 바꿨는지를 점수로 남기고, 그 기록으로 "이런 상황엔 이 장르"를 배워요. 덜 들어 본 장르도 가끔 섞어서 새로 알아 가요.
     제스처로 쓰려면 아래 "재생 조작"에서 동작을 <b>알아서 틀기</b>로 고르세요. 우클릭 메뉴에도 있어요.</div>
   <div class="sit">
     <div class="sit-now"><div><div class="sub">지금 상황</div><b id="sitNow">…</b></div><div class="grow"></div><button id="sitPlay">지금 알아서 틀기</button></div>
     <div><h3>지금 알아서 틀면</h3><div class="chips" id="sitRank"></div></div>
     <div class="sit-city">날씨 쓸 도시 <input type="text" id="sitCity" placeholder="예) 서울 (비우면 안 씀)"> <span id="sitWeather"></span></div>
+    <div class="sit-city">캘린더 iCal 주소 <input type="text" id="sitIcal" placeholder="선택 · 구글 캘린더 설정 → 비공개 iCal 주소" style="flex:1"> <span id="sitCal"></span></div>
+    <div class="sit-city"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="sitApps"> 지금 쓰는 앱 종류도 보기</label>
+      <span class="sub">작업 · 회의 · 노는 중 · 채팅 · 웹 — 종류만 쓰고 앱 이름·창 제목은 저장 안 해요</span></div>
+    <div class="sub" id="sitSignals"></div>
     <div class="fav-bar"><span class="sub" id="sitCount"></span><button id="sitAnalytics" style="height:26px">분석 열기 (지표 · 배운 것 · 기록)</button></div>
   </div>
 
@@ -568,6 +572,8 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
       if (x.why.length) row.querySelector('.why').textContent = x.why.join(' · ');
       $('sitRank').append(row);
     }
+    $('sitCal').textContent = r.calendar ? (r.calendar.error ? `⚠︎ ${r.calendar.error}` : `일정 ${r.calendar.events}개 · 지금 ${r.calendar.state}`) : '';
+    $('sitSignals').textContent = [r.app && `하는 일: ${r.app}`, r.people && `카메라: ${r.people}`].filter(Boolean).join(' · ');
     $('sitCount').textContent = r.total ? `기록 ${r.total}개로 배웠어요` : '아직 기록이 없어요. 듣다 보면 쌓여요.';
   }
   async function loadSituation(refresh) { drawSituation(await api.autoReport(refresh)); }
@@ -600,7 +606,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
       },
       smooth: { on: $('smoothOn').checked }, // (main.js cleanSettings 와 같은 순서: 바뀜 비교가 글자 그대로라서)
       learn: { on: $('learnOn').checked },
-      situation: { city: $('sitCity').value.trim().slice(0, 40) },
+      situation: { city: $('sitCity').value.trim().slice(0, 40), ical: $('sitIcal').value.trim(), apps: $('sitApps').checked },
     };
   }
 
@@ -610,6 +616,8 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
     $('smoothOn').checked = s.smooth.on;
     $('learnOn').checked = s.learn.on;
     $('sitCity').value = s.situation.city;
+    $('sitIcal').value = s.situation.ical || '';
+    $('sitApps').checked = s.situation.apps !== false;
     $('awayOn').checked = s.away.on;
     $('awayMin').value = s.away.minutes;
     $('schedOn').checked = s.schedule.on;
@@ -666,7 +674,7 @@ settings.html — 설정 화면 (노치 우클릭 → 설정…)
   };
   $('reset').onclick = () => drawAll(saved);
 
-  for (const id of ['fbSound', 'smoothOn', 'learnOn', 'sitCity', 'awayOn', 'awayMin', 'schedOn']) $(id).addEventListener('input', changed);
+  for (const id of ['fbSound', 'smoothOn', 'learnOn', 'sitCity', 'sitIcal', 'sitApps', 'awayOn', 'awayMin', 'schedOn']) $(id).addEventListener('input', changed);
   $('addSlot').onclick = () => {
     if (!rowsOf('genres').length) return setState('먼저 위에서 장르를 하나 만들어 주세요', true);
     $('slots').append(slotRow({}));

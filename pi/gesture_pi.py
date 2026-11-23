@@ -166,6 +166,7 @@ class App:
         self.action, self.prob = None, 0.0  # 이번 프레임 판별 결과
         self.last_sent = ""
         self.seen_at = 0.0  # 마지막으로 사람(손이나 몸)이 보인 시각 — 맥의 자리 비움 감지용
+        self.people = None  # 화면에 보이는 사람 수 (5초마다, 상황 엔진의 혼자/여럿)
         self.recording = None  # {"name", "start", "end", "got"}
         self.training = False
         self.message = ""
@@ -222,13 +223,24 @@ class App:
         둘 다 느려서(OLED 한 화면 ≈ 0.1초, 맥은 네트워크) 인식 루프 안에 두면 그동안 인식이 멈춰요.
         인식이 자주 돌수록 "1초 유지" 판단이 정확해져요."""
         now_info, next_now_at = {}, 0.0
+        next_count_at = 0.0
         lyrics = {"id": None, "ready": True, "lines": None}  # 지금 곡 가사 (곡이 바뀌면 맥에서 새로 받음)
         lyrics_at = 0.0
         while True:
             now = time.monotonic()
+            if now >= next_count_at:  # 사람 수는 5초에 한 번 (작은 사진으로)
+                next_count_at = now + 5.0
+                frame, _ = self.camera.latest(-1)
+                if frame is not None:
+                    try:
+                        small = cv2.resize(frame, (320, int(320 * frame.shape[0] / frame.shape[1])))
+                        self.people = self.landmarker.count_people(cv2.cvtColor(small, cv2.COLOR_BGR2RGB))
+                    except Exception as e:
+                        print(f"[사람 수] 못 셈: {e}", flush=True)
+                        self.people = None
             if now >= next_now_at:  # 맥 상태는 1초에 한 번만
                 next_now_at = now + 1.0
-                now_info = self.mac.now(present=now - self.seen_at < 3.0) or {}  # 3초 안에 보였으면 "있음"
+                now_info = self.mac.now(present=now - self.seen_at < 3.0, people=self.people) or {}  # 3초 안에 보였으면 "있음"
                 now_info["_at"] = time.monotonic()  # 받은 시각 (OLED 가 곡 진행 바를 그 사이에도 움직이게)
                 # 가사: 곡이 바뀌었거나, 맥이 아직 가사를 찾는 중이면(ready=False) 3초마다 다시
                 tid = now_info.get("id")

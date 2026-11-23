@@ -19,7 +19,7 @@
 //
 // 읽는 순서 추천: 맨 아래 "시작" → "재생 정보 폴링" → "노치 창" → 나머지
 // ============================================================
-const { app, BrowserWindow, ipcMain, screen, shell, Menu, nativeImage, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, Menu, nativeImage, systemPreferences, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -451,8 +451,11 @@ async function control(action) {
   if (action === 'other_playlist') return otherPlaylist();
   // Spotify 가 아니면 그 플랫폼 담당(players/)에게 넘김
   if (active !== 'spotify') {
+    if (action === 'next') countSkip();
     try {
       const say = await players[active].control(action);
+      if (action === 'like' && session && !/못|안 돼|로그인|뺐/.test(say || '')) session.liked = true; // 보상: 좋아요
+      if (action === 'volume_up' && session && !/못/.test(say || '')) session.volUp = true;
       if (say) notice(say);
     } catch (e) {
       console.error(e.message);
@@ -627,11 +630,16 @@ function cleanSettings(s) {
     schedule: { on: !!s.schedule?.on, slots }, // 시간대별 장르
     smooth: { on: s.smooth?.on !== false }, // 장르 바꿀 때 소리를 줄였다가 키움 (기본 켜짐)
     learn: { on: s.learn?.on !== false }, // 들은 시간·넘김으로 단골 플리 만들기 (기본 켜짐)
-    situation: { city: str(s.situation?.city).slice(0, 40) }, // 상황 엔진 날씨용 도시 (비우면 날씨 안 씀)
+    situation: {
+      city: str(s.situation?.city).slice(0, 40), // 상황 엔진 날씨용 도시 (비우면 날씨 안 씀)
+      ical: /^(https|webcal):\/\//i.test(str(s.situation?.ical)) ? str(s.situation.ical).slice(0, 600) : '', // 캘린더 iCal 주소 (선택)
+      apps: s.situation?.apps !== false, // 지금 쓰는 앱 종류 보기 (기본 켜짐, 종류만 씀)
+    },
   };
 }
 
 function saveSettings(next) {
+  energyCache.clear(); // 장르 이름·검색어가 바뀌었을 수 있음
   firstRun = false; // 한 번이라도 저장했으면 처음이 아님 (우클릭 메뉴로 플랫폼을 골라도)
   const before = settings?.platform;
   const beforeSource = settings?.source;
@@ -641,6 +649,8 @@ function saveSettings(next) {
   broadcast('camera', settings.camera);
   if (beforeSource !== settings.source) applySource();
   seenAt = Date.now(); // 자리 비움 시간은 저장한 지금부터 다시 셈
+  fitModels(); // 장르가 바뀌면 신남 정도도 바뀌어서 다시 배움 (기록은 그대로)
+  refreshCalendar(true);
   if (beforeSchedule !== JSON.stringify(settings.schedule)) checkSchedule(true); // 시간대별 장르를 방금 켰거나 고쳤으면 바로 반영
   if (before !== settings.platform) {
     // Spotify 에서 다른 곳으로 옮기면 Spotify 는 멈춰 둠 (두 군데서 동시에 나오지 않게)
@@ -963,7 +973,7 @@ const SKIP_WINDOW_MS = 2 * 60000;
 const SKIPS_BAD = 3;
 const favFile = () => path.join(app.getPath('userData'), 'favorites.json');
 let favorites = {}; // { 장르: { uri: { name, good, bad, plays, last } } }
-let session = null; // 지금 듣는 플리: { genre, uri, name, playlistLearn, meta: { src, p }, situation, startedAt, listened, skips, liked, volUp, tick, judged, logged }
+let session = null; // 지금 듣는 플리: { genre, uri, name, playlistLearn, meta: { src, p }, situation, startedAt, listened, away, skips, nexts, done, cut, liked, volUp, tick, judged, logged }
 
 function loadFavorites() {
   try {
@@ -992,8 +1002,38 @@ function startSession(genre, uri, name, playlistLearn, meta = {}) {
     e.plays++;
     saveFavorites();
   }
-  session = { genre, uri, name, playlistLearn, meta, situation: situationNow(), startedAt: Date.now(), listened: 0, skips: 0, tick: Date.now(), judged: false };
+  session = {
+    genre, uri, name, playlistLearn, meta, situation: situationNow(), startedAt: Date.now(),
+    listened: 0, away: 0, // 들은 시간 / 자리 비운 채 흘러간 시간 (점수에서 뺌)
+    skips: 0, nexts: 0, // 2분 안에 넘긴 곡 / 전체 넘긴 곡
+    done: 0, cut: 0, // 끝까지(85%) 들은 곡 / 중간에 바뀐 곡 (앱에서 직접 넘긴 것 포함)
+    trackId: null, trackProg: 0, trackDur: 0, nextPressed: false,
+    tick: Date.now(), judged: false,
+  };
 }
+
+// 카메라가 자리 비움을 알려주고 있고, 1분 넘게 사람이 안 보이면 "안 듣는 중"
+const AWAY_GRACE_MS = 60000;
+const listenerAway = () => Date.now() - presenceAt < 15000 && Date.now() - seenAt > AWAY_GRACE_MS;
+
+// 곡이 바뀔 때: 앞 곡을 끝까지 들었는지
+function trackStep(s, t) {
+  if (!t?.id || t.id === 'yt:ad') return; // 유튜브 광고는 곡으로 안 침
+  if (s.trackId && t.id !== s.trackId) {
+    const nearEnd = s.trackDur > 0 && (s.trackProg >= s.trackDur * 0.85 || s.trackDur - s.trackProg < 25000);
+    if (nearEnd) s.done++;
+    else s.cut++;
+    s.nextPressed = false;
+  }
+  s.trackId = t.id;
+  s.trackProg = t.progress || 0;
+  s.trackDur = t.duration || 0;
+}
+
+// 플리 점수를 상황 칸마다 따로도 셈 (주말 밤에 좋은 플리 ≠ 평일 아침에 좋은 플리)
+//   칸 = 평일/주말 × 아침·낮·저녁·밤 (8칸 — 너무 잘게 나누면 기록이 안 모여서)
+const TIME_GROUP = { 새벽: '밤', 아침: '아침', 낮: '낮', 오후: '낮', 저녁: '저녁', 밤: '밤' };
+const ctxBucket = (x) => `${x?.day || '평일'}|${TIME_GROUP[x?.time] || '낮'}`;
 
 function judge(s, kind) {
   if (s.judged) return;
@@ -1002,24 +1042,34 @@ function judge(s, kind) {
   const e = favEntry(s.genre, s.uri, s.name);
   e[kind]++;
   e.last = Date.now();
+  const c = ((e.ctx ||= {})[ctxBucket(s.situation)] ||= { good: 0, bad: 0 });
+  c[kind]++;
   saveFavorites();
   console.log(`[단골] ${s.genre} · ${s.name} → ${kind === 'good' ? '좋음' : '별로'} (좋음 ${e.good} / 별로 ${e.bad})`);
   if (kind === 'good' && e.good === 1) notice(`★ ${s.name} · ${s.genre} 단골로 저장했어요`);
 }
 
-// 폴링마다: 그 플리를 실제로 재생 중인 시간만 셈
-function tickSession(isPlaying, contextUri) {
+// 폴링마다: 그 플리를 실제로 재생 중인 시간만 셈 (어느 플랫폼이든). track: 지금 곡 (끝까지 들었는지 보려고)
+function tickSession(isPlaying, contextUri, track) {
   if (!session) return;
   const now = Date.now();
   const dt = now - session.tick;
   session.tick = now;
-  if (isPlaying && contextUri === session.uri && dt < 10000) session.listened += dt;
+  const mine = contextUri === session.uri;
+  if (isPlaying && mine && dt < 10000) {
+    if (listenerAway()) session.away += dt; // 자리 비운 채 흘러간 건 "들은 것"이 아님
+    else session.listened += dt;
+  }
+  if (mine) trackStep(session, track);
   if (session.listened >= GOOD_MS) judge(session, 'good');
   if (session.listened >= LOG_AT_MS) logSession(session, false); // 오래 듣는 중 → 미리 기록
 }
 
 function countSkip() {
-  if (!session || session.judged || Date.now() - session.startedAt > SKIP_WINDOW_MS) return;
+  if (!session) return;
+  session.nexts++;
+  session.nextPressed = true;
+  if (session.judged || Date.now() - session.startedAt > SKIP_WINDOW_MS) return;
   if (++session.skips >= SKIPS_BAD) judge(session, 'bad');
 }
 
@@ -1032,18 +1082,38 @@ function endSession(byUser) {
   if (s.listened < BAD_LISTEN_MS && Date.now() - s.startedAt < 5 * 60000) judge(s, 'bad');
 }
 
+// 베타 분포에서 하나 뽑기 (감마 두 개로) — "이 플리가 좋을 확률"의 있을 법한 값
+function gammaDraw(k) {
+  if (k < 1) return gammaDraw(k + 1) * Math.random() ** (1 / k);
+  const d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
+  for (;;) {
+    let x, v;
+    do { x = gauss(); v = 1 + c * x; } while (v <= 0);
+    v = v * v * v;
+    const u = Math.random();
+    if (u < 1 - 0.0331 * x ** 4 || Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+  }
+}
+const betaDraw = (a, b) => { const x = gammaDraw(a); return x / (x + gammaDraw(b)); };
+
 // 검색 결과 + 단골 중에서 하나 고르기 (무게를 둔 무작위)
+//   단골 점수는 Thompson sampling: 지금 상황 칸의 좋음/별로(무게 1) + 다른 칸까지 합친 것(무게 0.4)으로
+//   "좋을 확률"을 하나 뽑아서 무게로 씀 → 지금 같은 때 좋았던 플리가 잘 나오고, 덜 들어 본 것도 가끔
 function pickPlaylist(genre, found, recent) {
   const fav = settings.learn.on ? favorites[genre] || {} : {};
+  const bucket = ctxBucket(situationNow());
   const pool = new Map(found.map((p) => [p.uri, { uri: p.uri, name: p.name, fit: p.fit }]));
   for (const [uri, f] of Object.entries(fav)) if (f.good > f.bad) pool.set(uri, { uri, name: f.name, fit: pool.get(uri)?.fit ?? 2 });
   const weighed = [...pool.values()].map((p) => {
     const f = fav[p.uri];
     let w = p.fit == null ? 1 : Math.max(0.2, p.fit); // 장르에 잘 맞는 플리일수록
     if (f) {
-      w *= 1 + 1.5 * Math.min(f.good, 4);
-      w *= 0.25 ** Math.min(f.bad, 3);
+      const c = f.ctx?.[bucket] || { good: 0, bad: 0 };
+      const chance = betaDraw(1 + c.good + 0.4 * (f.good - c.good), 1 + c.bad + 0.4 * (f.bad - c.bad));
+      w *= 0.3 + 3 * chance;
       if (f.bad >= 2 && f.good === 0) w = 0; // 두 번 별로였으면 빼기
+    } else {
+      w *= 0.3 + 3 * betaDraw(1, 1); // 처음 보는 플리는 반반
     }
     if (p.uri === recent[recent.length - 1]) w = 0; // 방금 튼 건 바로 다시 안 틂
     else if (recent.includes(p.uri)) w *= 0.3;
@@ -1099,6 +1169,153 @@ const HINTS = { // 상황 → 그 상황에 어울리는 장르 이름·검색�
   still: ['focus', '집중', 'lofi', '잔잔', 'jazz', '재즈'],
 };
 let bodySignal = { activity: null, heart: null, at: 0 }; // 워치가 보낸 몸 상태
+let peopleSignal = { n: null, at: 0 }; // 카메라가 센 사람 수 (5초마다)
+
+/* ---------- 상황 정보 더 ----------
+   지금 쓰는 앱 : 맨 앞 앱 이름을 30초마다 보고(lsappinfo — 권한 필요 없음) 종류만 남겨요. 앱 이름·창 제목은 저장 안 함.
+                  최근 10분 동안 가장 많았던 종류 = 지금 하는 일
+   캘린더       : 설정에 적은 iCal 주소(구글 캘린더 "비공개 iCal 주소" 등)를 15분마다 받아서
+                  지금 일정 중인지 / 30분 안에 일정이 있는지만 봐요. 일정 제목은 저장 안 함.
+   사람 수      : 카메라(파이·맥북)가 5초마다 센 사람 수 → 혼자 / 여럿
+   최근에 들은 것: 지난 3시간 동안 장르마다 들은 분 → 같은 걸 오래 들었으면 질렸을 수 있음 */
+const APP_KINDS = {
+  work: ['code', 'cursor', 'xcode', 'terminal', 'iterm', 'warp', 'ghostty', 'intellij', 'pycharm', 'webstorm', 'android studio', 'sublime',
+    'notion', 'obsidian', 'pages', 'word', 'keynote', 'powerpoint', 'excel', 'numbers', 'hwp', '한글', 'figma', 'goodnotes', 'preview', '미리보기'],
+  meeting: ['zoom', 'teams', 'facetime', 'webex', 'gather', 'whereby'],
+  play: ['steam', 'league', 'riot', 'minecraft', 'battle.net', 'roblox', 'epic games', 'iina', 'vlc', 'quicktime', 'netflix', 'tv', 'disney'],
+  chat: ['kakaotalk', '카카오톡', 'slack', 'discord', 'messages', '메시지', 'telegram', 'line', 'instagram'],
+  web: ['safari', 'chrome', 'arc', 'firefox', 'whale', 'edge', 'brave', 'opera'],
+};
+const APP_KIND_NAMES = { work: '작업 중', meeting: '회의 중', play: '노는 중', chat: '채팅 중', web: '웹 보는 중' };
+const appSamples = []; // 최근 10분 앱 종류 (30초마다 하나)
+function appKindOf(name) {
+  const n = String(name || '').toLowerCase();
+  if (!n || n.includes('snaptune')) return null;
+  for (const [kind, words] of Object.entries(APP_KINDS)) if (words.some((w) => n === w || n.includes(w))) return kind;
+  return 'other';
+}
+function sampleFrontApp() {
+  if (settings?.situation?.apps === false) return appSamples.splice(0);
+  execFile('/usr/bin/lsappinfo', ['front'], { timeout: 3000 }, (err, asn) => {
+    if (err || !asn.trim()) return;
+    execFile('/usr/bin/lsappinfo', ['info', '-only', 'name', asn.trim()], { timeout: 3000 }, (e2, out) => {
+      if (e2) return;
+      const name = (out.match(/"(?:LSDisplayName|name)"\s*=\s*"([^"]*)"/i) || [])[1];
+      const kind = appKindOf(name);
+      if (kind === null) return; // Snaptune 자기 자신(설정 창 등)은 셈에서 뺌
+      appSamples.push(kind);
+      if (appSamples.length > 20) appSamples.shift();
+    });
+  });
+}
+function appNow() {
+  if (appSamples.length < 3) return null;
+  const count = {};
+  for (const k of appSamples) count[k] = (count[k] || 0) + 1;
+  const [kind, n] = Object.entries(count).sort((a, b) => b[1] - a[1])[0];
+  return kind !== 'other' && n / appSamples.length >= 0.4 ? kind : null;
+}
+
+// iCal(.ics) 아주 작게 읽기: 한 번짜리 일정 + 매일/매주 반복 (BYDAY, UNTIL, INTERVAL). 종일 일정은 "바쁨"으로 안 침
+const calendar = { url: '', events: [], at: 0, error: '', busy: false };
+function icsDate(v, tzLocal) {
+  const m = String(v).match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+  if (!m) return null;
+  const [, y, mo, d, h = '00', mi = '00', se = '00', z] = m;
+  if (m[4] === undefined) return { allDay: true, t: new Date(+y, +mo - 1, +d).getTime() };
+  return { allDay: false, t: z && !tzLocal ? Date.UTC(+y, +mo - 1, +d, +h, +mi, +se) : new Date(+y, +mo - 1, +d, +h, +mi, +se).getTime() };
+}
+function parseIcs(text) {
+  const lines = String(text).replace(/\r?\n[ \t]/g, '').split(/\r?\n/);
+  const out = [];
+  let ev = null;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') ev = {};
+    else if (line === 'END:VEVENT') { if (ev?.start && !ev.start.allDay) out.push(ev); ev = null; }
+    else if (ev) {
+      const i = line.indexOf(':');
+      if (i < 0) continue;
+      const [key, ...params] = line.slice(0, i).split(';');
+      const val = line.slice(i + 1);
+      const local = params.some((p) => p.startsWith('TZID='));
+      if (key === 'DTSTART') ev.start = icsDate(val, local);
+      else if (key === 'DTEND') ev.end = icsDate(val, local);
+      else if (key === 'RRULE') ev.rrule = Object.fromEntries(val.split(';').map((kv) => kv.split('=')));
+      else if (key === 'STATUS' && val === 'CANCELLED') ev.cancelled = true;
+    }
+  }
+  return out.filter((e) => !e.cancelled).map((e) => ({
+    start: e.start.t, dur: Math.max(5 * 60000, (e.end?.t || e.start.t + 3600000) - e.start.t), rrule: e.rrule || null,
+  }));
+}
+// 오늘 기준으로 그 일정이 [시작, 끝] 인 때들 (반복 일정은 오늘·어제 것만 계산)
+function occurrencesNear(e, now) {
+  if (!e.rrule) return [[e.start, e.start + e.dur]];
+  const r = e.rrule;
+  const until = r.UNTIL ? icsDate(r.UNTIL)?.t ?? Infinity : Infinity;
+  const interval = Math.max(1, Number(r.INTERVAL) || 1);
+  const base = new Date(e.start);
+  const res = [];
+  for (const back of [1, 0]) {
+    const day = new Date(now);
+    day.setDate(day.getDate() - back);
+    day.setHours(base.getHours(), base.getMinutes(), base.getSeconds(), 0);
+    const t = day.getTime();
+    if (t < e.start || t > until) continue;
+    const days = Math.round((new Date(day).setHours(0, 0, 0, 0) - new Date(base).setHours(0, 0, 0, 0)) / 86400000);
+    let ok = false;
+    if (r.FREQ === 'DAILY') ok = days % interval === 0;
+    else if (r.FREQ === 'WEEKLY') {
+      const codes = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+      const by = r.BYDAY ? r.BYDAY.split(',').map((x) => x.slice(-2)) : [codes[base.getDay()]];
+      ok = by.includes(codes[day.getDay()]) && Math.floor(days / 7) % interval === 0;
+    }
+    if (ok) res.push([t, t + e.dur]);
+  }
+  return res;
+}
+async function refreshCalendar(force = false) {
+  const url = (settings?.situation?.ical || '').replace(/^webcal:/i, 'https:');
+  if (!url) return Object.assign(calendar, { url: '', events: [], error: '' });
+  if (calendar.busy || (!force && url === calendar.url && Date.now() - calendar.at < 15 * 60000)) return;
+  calendar.busy = true;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`캘린더를 받지 못했어요 (${res.status})`);
+    const events = parseIcs(await res.text());
+    Object.assign(calendar, { url, events, at: Date.now(), error: '' });
+  } catch (e) {
+    Object.assign(calendar, { url, at: Date.now(), error: e.message.includes('캘린더') ? e.message : '캘린더 주소에 연결하지 못했어요' });
+  } finally {
+    calendar.busy = false;
+  }
+}
+// 'busy' 지금 일정 중 / 'soon' 30분 안에 시작 / null
+function calendarNow(now = Date.now()) {
+  if (!calendar.events.length) return null;
+  let soon = false;
+  for (const e of calendar.events) {
+    for (const [a, b] of occurrencesNear(e, now)) {
+      if (a <= now && now < b) return 'busy';
+      if (a > now && a - now <= 30 * 60000) soon = true;
+    }
+  }
+  return soon ? 'soon' : null;
+}
+const CAL_NAMES = { busy: '일정 중', soon: '곧 일정' };
+
+// 지난 3시간 장르마다 들은 분 (+ 지금 세션), 마지막으로 들은 장르(30분 안)
+function recentListening(now = Date.now()) {
+  const recent = {};
+  for (const r of history) {
+    if (r.t >= now - 3 * 3600000) recent[r.genre] = (recent[r.genre] || 0) + (r.listened || 0) / 60;
+  }
+  if (session && !session.logged) recent[session.genre] = (recent[session.genre] || 0) + session.listened / 60000;
+  for (const k of Object.keys(recent)) recent[k] = Math.round(recent[k]);
+  const lastRec = session && !session.logged ? { genre: session.genre, t: now } : history[history.length - 1];
+  const last = lastRec && now - (lastRec.t + (lastRec.listened || 0) * 1000) < 30 * 60000 ? lastRec.genre : null;
+  return { recent, last };
+}
 
 function timeOfDay(d) {
   let name = TIME_SLOTS[0][1];
@@ -1108,18 +1325,27 @@ function timeOfDay(d) {
 
 function situationNow(d = new Date()) {
   refreshWeather(); // 기다리지 않음: 이번엔 지난번 날씨로
+  refreshCalendar();
   const fresh = Date.now() - bodySignal.at < 5 * 60000;
+  const people = Date.now() - peopleSignal.at < 30000 ? peopleSignal.n : null;
+  const { recent, last } = recentListening(d.getTime());
   return {
     day: d.getDay() === 0 || d.getDay() === 6 ? '주말' : '평일',
     time: timeOfDay(d),
     hour: Math.round((d.getHours() + d.getMinutes() / 60) * 10) / 10,
     weather: weather.label,
     activity: fresh ? bodySignal.activity : null,
+    app: appNow(), // work / meeting / play / chat / web / null
+    cal: calendarNow(d.getTime()), // busy / soon / null
+    people: people == null || people === 0 ? null : people === 1 ? 'alone' : 'group',
+    recent, last, // 장르별 최근 3시간 들은 분, 30분 안에 마지막으로 들은 장르
   };
 }
 const sitKey = (x) => [x.day, x.time, x.weather || '-', x.activity || '-'].join('|');
 const sitFromKey = (k) => { const [day, time, w, a] = k.split('|'); return { day, time, weather: w === '-' ? null : w, activity: a === '-' ? null : a }; };
-const sitLabel = (x) => [x.day, x.time, x.weather, ACTIVITY_NAMES[x.activity]].filter(Boolean).join(' · ');
+const PEOPLE_NAMES = { alone: '혼자', group: '여럿이' };
+const sitLabel = (x) => [x.day, x.time, x.weather, ACTIVITY_NAMES[x.activity], APP_KIND_NAMES[x.app], CAL_NAMES[x.cal], PEOPLE_NAMES[x.people]]
+  .filter(Boolean).join(' · ');
 
 /* ---------- ④ 보상 기록 ----------
    틀었던 것 하나 = history.jsonl 한 줄:
@@ -1133,12 +1359,16 @@ const HISTORY_KEEP = 5000;
 const histFile = () => path.join(app.getPath('userData'), 'history.jsonl');
 let history = [];
 
+// 보상 = 들은 비율(10분 = 1, 자리 비운 시간 빼고) + 좋아요 1 + 볼륨 올림 0.2 − 금방 바꿈 1
+//        − 0.5 × (2분 안에 넘긴 곡 / 3) + 0.4 × (끝까지 들은 곡 비율 − 0.5)  ← 곡이 2개 이상 지나갔을 때만
 function rewardOf(s, early) {
   let r = Math.min(1, s.listened / FULL_MS);
   if (s.liked) r += 1;
   if (s.volUp) r += 0.2;
   if (early) r -= 1;
   r -= 0.5 * Math.min(1, s.skips / SKIPS_BAD);
+  const tracks = (s.done || 0) + (s.cut || 0);
+  if (tracks >= 2) r += 0.4 * ((s.done || 0) / tracks - 0.5);
   return Math.round(r * 100) / 100;
 }
 
@@ -1146,12 +1376,14 @@ function rewardOf(s, early) {
 function logSession(s, byUser) {
   if (!s || s.logged || !settings.learn.on) return;
   const early = byUser && s.listened < BAD_LISTEN_MS && Date.now() - s.startedAt < 5 * 60000;
-  if (!early && s.listened < 30000 && !s.liked && !s.skips) return; // 아무것도 알 수 없는 짧은 재생
+  if (!early && s.listened < 30000 && !s.liked && !s.skips) return; // 아무것도 알 수 없는 짧은 재생 (자리 비운 채 틀어 둔 것도)
   if (s.sameGenre && early) return; // 플리만 바꾼 것 → 장르 선택은 다음 플리 기록이 대신 판단
   s.logged = true;
   const rec = {
     t: s.startedAt, genre: s.genre, uri: s.uri, src: s.meta?.src || 'gesture', p: s.meta?.p ?? null, x: s.situation,
-    listened: Math.round(s.listened / 1000), skips: s.skips, liked: !!s.liked, volUp: !!s.volUp, early, reward: rewardOf(s, early),
+    listened: Math.round(s.listened / 1000), away: Math.round((s.away || 0) / 1000), skips: s.skips, nexts: s.nexts || 0,
+    done: s.done || 0, cut: s.cut || 0, liked: !!s.liked, volUp: !!s.volUp, early, reward: rewardOf(s, early),
+    platform: s.platform || 'spotify',
   };
   history.push(rec);
   if (history.length > HISTORY_KEEP) history = history.slice(-HISTORY_KEEP);
@@ -1193,24 +1425,32 @@ function migrateSituations() {
 }
 
 /* ---------- ③ 맥락 밴딧 (Thompson sampling) ----------
-   장르마다 "이 상황 특징이면 보상이 얼마쯤일까"를 선형으로 배워요 (베이즈 선형 회귀).
-     특징 φ(x) = [1, 시간대 6칸, 시각 sin·cos, 주말, 날씨 4칸, 활동 3칸]  (17개)
-     배운 값은 평균(θ)과 불확실함(A⁻¹)을 같이 가짐 → 기록이 적은 장르·상황일수록 불확실
-   고를 때: 장르마다 "있을 법한 θ" 를 하나씩 뽑아서 점수가 가장 높은 장르 (Thompson sampling)
+   두 겹으로 배워요 (베이즈 선형 회귀 두 개, 둘 다 "평균 + 불확실함"을 가짐)
+     ① 분위기 모델 (모든 장르가 같이 씀): "이 상황이면 신나는 음악이 나을까, 잔잔한 게 나을까"
+        특징 = 상황 φ(x) × 장르의 신남 정도(e: 잔잔 0 ~ 신남 1)  → 재즈로 배운 게 lofi·발라드에도 이어짐
+        처음 쓰는 사람: 사전값(PRIOR_BETA — 밤엔 잔잔, 뛸 땐 신나게 …)에서 시작 → 기록 없이도 그럴듯하게
+     ② 장르 모델 (장르마다 따로): 분위기로 설명 못 하는 나머지 (그 장르 자체를 좋아하는지, 질렸는지)
+   상황 φ(x) = [1, 시간대 6, 시각 sin·cos, 주말, 날씨 4, 활동 3, 하는 일 5, 캘린더 2, 혼자/여럿 2]  (26개)
+   장르 모델엔 + [최근 3시간 그 장르 들은 양, 방금 그 장르였는지] (28개) → 같은 걸 오래 들으면 질림을 배움
+   고를 때: 분위기 β 하나, 장르마다 θ 하나씩 "있을 법한 값"을 뽑아서 점수가 가장 높은 장르 (Thompson sampling)
      → 확실히 좋은 건 자주, 덜 들어 본 건 가끔 (따로 '섞기' 비율이 필요 없음)
-   점수 = φ·θ뽑기 + 기본 점수(장르 이름이 상황과 어울리면 · 시간대별 장르 칸)
+   점수 = φ·θ뽑기 + 분위기·β뽑기 + 기본 점수(장르 이름이 상황과 어울리면 · 시간대별 장르 칸)
    오래된 기록은 덜 믿어요 (90일마다 무게 절반) → 취향이 바뀌어도 따라감 */
 const PRIOR_PRECISION = 4; // 클수록 처음엔 덜 흔들림 (기록 4개쯤부터 기록이 앞섬)
+const SHARED_PRECISION = 6; // 분위기 사전값을 얼마나 믿을지
 const NOISE = 0.6; // 보상이 얼마나 들쭉날쭉한지
 const HALF_LIFE_DAYS = 90;
-const HINT_WEIGHT = 0.4;
+const HINT_WEIGHT = 0.25;
 const SLOT_WEIGHT = 0.6;
 const MIN_CHANCE = 0.02; // 어떤 장르든 이 정도는 (기록을 나중에 평가할 수 있게)
 const WEATHERS = ['맑음', '흐림', '비', '눈'];
 const ACTIVITIES = ['still', 'walking', 'running'];
+const APP_ORDER = ['work', 'meeting', 'play', 'chat', 'web'];
+const FEATURE_NAMES = ['기본', ...TIME_ORDER, '시각sin', '시각cos', '주말', ...WEATHERS, ...ACTIVITIES, ...APP_ORDER, 'busy', 'soon', 'alone', 'group'];
 let models = {}; // 장르 → { L: A 의 촐레스키, theta, n }
+let shared = null; // 분위기 모델 { L, beta, n }
 
-function features(x) {
+function baseFeatures(x) {
   const mid = { 새벽: 3, 아침: 8, 낮: 12, 오후: 16, 저녁: 19.5, 밤: 22.5 };
   const h = ((x.hour ?? mid[x.time] ?? 12) / 24) * 2 * Math.PI;
   return [
@@ -1220,9 +1460,64 @@ function features(x) {
     x.day === '주말' ? 1 : 0,
     ...WEATHERS.map((w) => (x.weather === w ? 1 : 0)),
     ...ACTIVITIES.map((a) => (x.activity === a ? 1 : 0)),
+    ...APP_ORDER.map((k) => (x.app === k ? 1 : 0)),
+    x.cal === 'busy' ? 1 : 0, x.cal === 'soon' ? 1 : 0,
+    x.people === 'alone' ? 1 : 0, x.people === 'group' ? 1 : 0,
   ];
 }
-const DIM = features({ time: '낮', day: '평일' }).length;
+// 장르 모델 특징: 상황 + 그 장르에 질렸는지
+function features(x, genre) {
+  const minutes = x.recent?.[genre] || 0;
+  return [...baseFeatures(x), Math.min(1.5, minutes / 90), x.last && x.last === genre ? 1 : 0];
+}
+const DIM = features({ time: '낮', day: '평일' }, '').length;
+const SDIM = baseFeatures({ time: '낮', day: '평일' }).length;
+// 장르 모델의 처음 값: 전부 0, 질림만 − (같은 장르를 1시간 반 들으면 −0.4, 방금 그 장르였으면 −0.1) → 기록 없이도 가끔 바꿔 줌
+const THETA0 = Array.from({ length: DIM }, (_, i) => (i === DIM - 2 ? -0.4 : i === DIM - 1 ? -0.1 : 0));
+
+// 장르의 신남 정도 (0 잔잔 ~ 1 신남): 장르 사전 → 이름·검색어 낱말 → 모르면 0.5
+const ENERGY = { lofi: 0.15, classical: 0.2, jazz: 0.3, ballad: 0.3, indie: 0.45, rnb: 0.5, pop: 0.6, jpop: 0.6, kpop: 0.7, hiphop: 0.75, rock: 0.8, edm: 0.9, workout: 0.95 };
+const ENERGY_WORDS = [
+  [0.15, ['잔잔', 'sleep', '잠', '수면', 'piano', '피아노', 'ambient', '명상', 'calm']],
+  [0.4, ['노동요', 'focus', '집중', 'study', '공부', 'acoustic', '어쿠스틱', '카페', 'cafe']],
+  [0.85, ['신나는', 'party', '파티', 'dance', '댄스', 'hype', 'drive', '드라이브', '운동']],
+];
+const energyCache = new Map();
+function energyOf(genreName) {
+  if (energyCache.has(genreName)) return energyCache.get(genreName);
+  const item = settings?.genres?.find((g) => g.genre === genreName) || { genre: genreName, query: '' };
+  const kinds = genreKinds({ genre: item.genre, query: item.query || '' }).filter((k) => ENERGY[k] != null);
+  let e = kinds.length ? kinds.reduce((a, k) => a + ENERGY[k], 0) / kinds.length : null;
+  if (e == null) {
+    const text = `${item.genre} ${item.query || ''} ${item.playlist?.name || ''}`.toLowerCase();
+    const hit = ENERGY_WORDS.find(([, words]) => words.some((w) => text.includes(w)));
+    e = hit ? hit[0] : 0.5;
+  }
+  energyCache.set(genreName, e);
+  return e;
+}
+// 분위기 모델 특징: 상황 × (신남 − 0.5) × 2  → 신나는 장르는 +, 잔잔한 장르는 −
+const sharedFeatures = (x, genre) => { const k = (energyOf(genre) - 0.5) * 2; return baseFeatures(x).map((v) => v * k); };
+
+/* ---------- ④ 처음 쓰는 사람을 위한 사전값 ----------
+   "이 상황에서 신나는 음악이 얼마나 나은가" 를 기록 0개일 때 이 값에서 시작해요 (+ 신나게, − 잔잔하게).
+   앱 폴더에 engine-prior.json 이 있으면 그 값이 먼저예요 → 여러 사람이 "기본값 내보내기"로 낸 걸
+   scripts/merge-priors.js 로 합쳐서 넣으면, 다음 버전부터 처음 쓰는 사람도 그 평균에서 시작해요. */
+const PRIOR_BETA = {
+  새벽: -0.6, 아침: 0.1, 낮: 0.1, 오후: 0.2, 저녁: 0.2, 밤: -0.4, 주말: 0.15,
+  맑음: 0.1, 흐림: -0.1, 비: -0.3, 눈: -0.1,
+  still: -0.2, walking: 0.2, running: 0.6,
+  work: -0.3, meeting: -0.6, play: 0.3, chat: 0, web: 0,
+  busy: -0.5, soon: -0.1, alone: 0, group: 0.3,
+};
+function priorBeta() {
+  let table = PRIOR_BETA;
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(__dirname, 'engine-prior.json'), 'utf8'));
+    if (j && typeof j.beta === 'object') table = { ...PRIOR_BETA, ...j.beta };
+  } catch {}
+  return FEATURE_NAMES.map((n) => (Number.isFinite(table[n]) ? table[n] : 0));
+}
 
 // 작은 행렬 계산 (17 x 17 이라 그냥 손으로)
 function cholesky(A) {
@@ -1262,20 +1557,30 @@ function gauss() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
+const eye = (n, v) => Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? v : 0)));
+function addOuter(A, b, f, w, y) {
+  for (let i = 0; i < f.length; i++) {
+    if (!f[i]) continue;
+    b[i] += w * y * f[i];
+    for (let j = 0; j < f.length; j++) A[i][j] += w * f[i] * f[j];
+  }
+}
+
 function fitModels() {
-  const by = {};
   const now = Date.now();
-  for (const r of history) {
-    const m = (by[r.genre] ||= {
-      A: Array.from({ length: DIM }, (_, i) => Array.from({ length: DIM }, (_, j) => (i === j ? PRIOR_PRECISION : 0))),
-      b: new Array(DIM).fill(0), n: 0,
-    });
-    const w = 0.5 ** ((now - (r.t || now)) / 86400000 / HALF_LIFE_DAYS);
-    const f = features(r.x);
-    for (let i = 0; i < DIM; i++) {
-      m.b[i] += w * r.reward * f[i];
-      for (let j = 0; j < DIM; j++) m.A[i][j] += w * f[i] * f[j];
-    }
+  const rows = history.map((r) => ({ r, w: 0.5 ** ((now - (r.t || now)) / 86400000 / HALF_LIFE_DAYS) }));
+  // ① 분위기 모델: 사전값 β₀ 둘레에서 시작 (A = λI, b = λβ₀)
+  const beta0 = priorBeta();
+  const As = eye(SDIM, SHARED_PRECISION), bs = beta0.map((v) => v * SHARED_PRECISION);
+  let ns = 0;
+  for (const { r, w } of rows) { addOuter(As, bs, sharedFeatures(r.x, r.genre), w, r.reward); ns += w; }
+  const Ls = cholesky(As);
+  shared = { L: Ls, beta: solveUpperT(Ls, solveLower(Ls, bs)), n: ns, beta0 };
+  // ② 장르 모델: 분위기로 설명하고 남은 것(보상 − 분위기 예측)을 배움
+  const by = {};
+  for (const { r, w } of rows) {
+    const m = (by[r.genre] ||= { A: eye(DIM, PRIOR_PRECISION), b: THETA0.map((v) => v * PRIOR_PRECISION), n: 0 });
+    addOuter(m.A, m.b, features(r.x, r.genre), w, r.reward - dot(sharedFeatures(r.x, r.genre), shared.beta));
     m.n += w;
   }
   models = {};
@@ -1286,14 +1591,14 @@ function fitModels() {
 }
 
 // 기록이 없는 장르: θ = 0, A = 사전값 → L = √λ·I
-const blankModel = () => ({ L: Array.from({ length: DIM }, (_, i) => Array.from({ length: DIM }, (_, j) => (i === j ? Math.sqrt(PRIOR_PRECISION) : 0))), theta: new Array(DIM).fill(0), n: 0 });
+const blankModel = () => ({ L: Array.from({ length: DIM }, (_, i) => Array.from({ length: DIM }, (_, j) => (i === j ? Math.sqrt(PRIOR_PRECISION) : 0))), theta: THETA0.slice(), n: 0 });
 
 // 장르마다 점수 → 고를 확률 (Thompson 을 여러 번 해 보고 각 장르가 1등 한 비율)
 // [{ item, chance, mean, sd, why: [...] }] (확률 높은 순)
 function rankGenres(now = situationNow(), draws = 400) {
   const slot = currentSlot();
   const playing = currentTrack?.isPlaying ? currentGenre : null; // 지금 듣는 장르는 빼고 (다른 걸 원해서 부른 거니까)
-  const f = features(now);
+  if (!shared) fitModels();
   const list = settings.genres.filter((g) => g.genre !== playing || settings.genres.length === 1).map((item) => {
     const text = `${item.genre} ${item.query} ${item.playlist?.name || ''}`.toLowerCase();
     const why = [];
@@ -1309,19 +1614,31 @@ function rankGenres(now = situationNow(), draws = 400) {
       why.push(`${slot.from} 시간대 장르`);
     }
     const m = models[item.genre] || blankModel();
-    const mean = dot(f, m.theta);
-    const sd = NOISE * Math.sqrt(dot(solveLower(m.L, f), solveLower(m.L, f))); // φᵀA⁻¹φ
-    if (m.n >= 1 && mean > 0.25) why.unshift('이런 때 오래 들음');
-    else if (m.n >= 1 && mean < -0.25) why.unshift('이런 때 금방 넘김');
-    else if (m.n < 1) why.push('아직 잘 모름');
-    return { item, m, prior, mean, sd, why, wins: 0 };
+    const f = features(now, item.genre);
+    const sf = sharedFeatures(now, item.genre);
+    const own = dot(f, m.theta);
+    const mood = dot(sf, shared.beta);
+    const mean = own + mood;
+    const vo = dot(solveLower(m.L, f), solveLower(m.L, f)); // φᵀA⁻¹φ
+    const vs = dot(solveLower(shared.L, sf), solveLower(shared.L, sf));
+    const sd = NOISE * Math.sqrt(vo + vs);
+    if (m.n >= 1 && own > 0.25) why.unshift('이런 때 오래 들음');
+    else if (m.n >= 1 && own < -0.25) why.unshift('이런 때 금방 넘김');
+    if (mood > 0.15) why.push(energyOf(item.genre) >= 0.5 ? '지금은 신나는 게 어울림' : '지금은 잔잔한 게 어울림');
+    else if (mood < -0.15) why.push(energyOf(item.genre) >= 0.5 ? '지금은 너무 신남' : '지금은 너무 잔잔함');
+    if ((now.recent?.[item.genre] || 0) >= 60) why.push(`최근 ${now.recent[item.genre]}분 들음`);
+    if (m.n < 1) why.push('아직 잘 모름');
+    return { item, m, f, sf, prior, mean, own, mood, sd, why, wins: 0 };
   });
   if (!list.length) return [];
   for (let d = 0; d < draws; d++) {
+    // 분위기 β 는 한 번만 뽑아서 모든 장르에 같이 씀 (같은 "지금 분위기 판단"으로 비교)
+    const zs = Array.from({ length: SDIM }, gauss);
+    const betaDraw = solveUpperT(shared.L, zs).map((v, i) => shared.beta[i] + NOISE * v);
     let best = null, bestScore = -Infinity;
     for (const c of list) {
       const z = Array.from({ length: DIM }, gauss);
-      const score = c.prior + dot(f, c.m.theta) + NOISE * dot(f, solveUpperT(c.m.L, z)); // φ·(θ + 소음·L⁻ᵀz)
+      const score = c.prior + dot(c.f, c.m.theta) + NOISE * dot(c.f, solveUpperT(c.m.L, z)) + dot(c.sf, betaDraw); // φ·(θ + 소음·L⁻ᵀz) + 분위기
       if (score > bestScore) { bestScore = score; best = c; }
     }
     best.wins++;
@@ -1399,6 +1716,19 @@ function analyticsReport(days = 30) {
     found: rows.filter((r) => r.src === 'auto' && r.p != null && r.p < 0.2 && r.reward >= 0.8).length,
     recent: rows.slice(-60).reverse().map((r) => ({ ...r, label: sitLabel(r.x) })),
     situation: now,
+    mood: moodReport(),
+  };
+}
+
+// 분석 창: 분위기 모델이 배운 것 (상황마다 신나는 쪽 + / 잔잔한 쪽 −, 처음 값과 비교)
+const FEATURE_LABELS = { 기본: '평소', still: '가만히', walking: '걷는 중', running: '뛰는 중', ...APP_KIND_NAMES, busy: '일정 중', soon: '곧 일정', alone: '혼자', group: '여럿이' };
+function moodReport() {
+  if (!shared) fitModels();
+  return {
+    n: shared.n,
+    rows: FEATURE_NAMES.map((name, i) => ({ name, label: FEATURE_LABELS[name] || name, beta: shared.beta[i], beta0: shared.beta0[i] }))
+      .filter((r) => !r.name.startsWith('시각')),
+    energy: settings.genres.map((g) => ({ genre: g.genre, energy: energyOf(g.genre) })).sort((a, b) => a.energy - b.energy),
   };
 }
 
@@ -1418,8 +1748,10 @@ function situationReport() {
     .sort((a, b) => b.score - a.score);
   return {
     now, label: sitLabel(now), temp: weather.temp, city: settings.situation.city, weatherError: weather.error,
+    calendar: settings.situation.ical ? { events: calendar.events.length, error: calendar.error, state: CAL_NAMES[now.cal] || '일정 없음' } : null,
+    app: APP_KIND_NAMES[now.app] || null, people: PEOPLE_NAMES[now.people] || null,
     watch: now.activity ? { activity: ACTIVITY_NAMES[now.activity], heart: bodySignal.heart } : null,
-    ranking: rankGenres(now).map((x) => ({ genre: x.item.genre, chance: x.chance, why: x.why, mean: x.mean, sd: x.sd })),
+    ranking: rankGenres(now).map((x) => ({ genre: x.item.genre, chance: x.chance, why: x.why, mean: x.mean, sd: x.sd, mood: x.mood, own: x.own, energy: energyOf(x.item.genre) })),
     learned: learned.slice(0, 30),
     stats: historyStats(),
     total: history.length,
@@ -1522,7 +1854,9 @@ async function playGenre(g, { auto = false, why = '', src = auto ? 'schedule' : 
     currentGenre = g.genre;
     genreContext = played.context;
     genreStartedAt = Date.now();
-    if (via === 'spotify') startSession(g.genre, played.context, played.name || played.label, !!played.learn, { src, p });
+    // 점수 기록은 모든 플랫폼에서 (단골 플리 배우기는 Spotify 검색 플리만)
+    startSession(g.genre, played.context, played.name || played.label, via === 'spotify' && !!played.learn, { src, p });
+    if (session) session.platform = via;
     broadcast('genre', currentGenre);
     notice(`${why ? `${why} ` : ''}${g.genre} · ${played.label}`);
     pollSoon();
@@ -1551,8 +1885,9 @@ let presenceAt = 0; // 인식 프로그램이 마지막으로 알려준 시각 (
 let autoPaused = false; // 자리 비움으로 멈춘 상태
 let slotKey = null; // 지금 시간대 칸 ('07:00 재즈') — 바뀌었는지 보려고
 
-function reportPresence(present) {
+function reportPresence(present, people = null) {
   presenceAt = Date.now();
+  if (Number.isFinite(people) && people >= 0) peopleSignal = { n: Math.min(9, Math.round(people)), at: Date.now() };
   if (!present) return;
   seenAt = Date.now();
   if (autoPaused) comeBack();
@@ -1611,6 +1946,9 @@ function checkSchedule(justSaved = false) {
 function startAutomation() {
   slotKey = currentSlot() ? keyOf(currentSlot()) : null;
   setInterval(() => { checkAway(); checkSchedule(); }, 5000);
+  sampleFrontApp();
+  setInterval(sampleFrontApp, 30000); // 상황 엔진: 지금 하는 일 (앱 종류만)
+  refreshCalendar();
 }
 
 /* ---------- 설정 창 ---------- */
@@ -1663,6 +2001,19 @@ function openAnalytics() {
   analyticsWin = makeWindow('analytics.html', 'Snaptune 분석', { width: 820, height: 860 });
   analyticsWin.on('closed', () => (analyticsWin = null));
 }
+
+// 분석 창 "기본값 내보내기": 분위기 모델 값만 (기록·장르 이름 없이) → 여럿이 모아 scripts/merge-priors.js 로 합침
+ipcMain.handle('auto:export-prior', async () => {
+  if (!shared) fitModels();
+  const beta = Object.fromEntries(FEATURE_NAMES.map((n, i) => [n, Math.round(shared.beta[i] * 1000) / 1000]));
+  const { canceled, filePath } = await dialog.showSaveDialog(analyticsWin || settingsWin || undefined, {
+    title: '상황 엔진 기본값 내보내기', defaultPath: path.join(app.getPath('desktop'), 'snaptune-prior.json'),
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (canceled || !filePath) return { ok: false };
+  fs.writeFileSync(filePath, JSON.stringify({ version: 1, n: Math.round(shared.n * 10) / 10, beta }, null, 2) + '\n');
+  return { ok: true, path: filePath, n: shared.n };
+});
 
 ipcMain.handle('settings:get', () => ({
   settings, actions: CONTROL_ACTIONS, platforms: PLATFORMS, sources: SOURCES,
@@ -1795,7 +2146,9 @@ function startGestureServer() {
     // 지금 고른 카메라가 보낸 것만 믿음 (맥북 카메라를 쓰는 동안엔 라즈베리파이가 보내는 건 무시, 그 반대도)
     const fromSource = settings.source === 'mac' ? local : settings.source === 'pi';
     if (url.pathname === '/now') {
-      if (url.searchParams.has('present') && fromSource) reportPresence(url.searchParams.get('present') === '1');
+      if (url.searchParams.has('present') && fromSource) {
+        reportPresence(url.searchParams.get('present') === '1', url.searchParams.has('people') ? Number(url.searchParams.get('people')) : null);
+      }
       return json(res, 200, currentTrack
         ? {
             id: currentTrack.id, // 곡이 바뀌면 OLED 가 /lyrics 로 가사를 새로 받아감
@@ -1948,6 +2301,7 @@ async function pollPlayer() {
     return POLL_MS;
   }
   checkGenreContext(t.context || null);
+  tickSession(!!t.isPlaying, t.context || null, t);
   const isNew = t.id !== lastTrackId;
   t.accent = await accentOf(t.image);
   currentTrack = t;
@@ -1974,8 +2328,8 @@ async function poll() {
 
   const json = await res.json();
   checkGenreContext(json.context?.uri || null);
-  tickSession(!!json.is_playing, json.context?.uri || null);
   const t = toTrack(json);
+  tickSession(!!json.is_playing, json.context?.uri || null, t);
   if (t) {
     const isNew = t.id !== lastTrackId;
     if (isNew) likedCache.delete(t.uri); // Spotify 앱에서 바꿨을 수도 있으니 곡마다 새로 확인

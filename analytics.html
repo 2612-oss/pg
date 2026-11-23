@@ -62,6 +62,11 @@ analytics.html — 분석 창 (노치 우클릭 → 분석…, 또는 설정 →
   .del { height: 22px; width: 22px; padding: 0; color: var(--sub); }
   .src { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #2a2a2a; color: var(--sub); }
   .src.auto { background: rgba(139, 108, 255, .18); color: var(--accent); }
+  .mbar { position: relative; display: inline-block; width: 220px; height: 10px; background: #222; border-radius: 5px; vertical-align: middle; }
+  .mbar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #555; }
+  .mbar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+  .mbar i.p { background: #444; top: 3px; bottom: 3px; }
+  .mbar i.v { background: var(--accent); opacity: .85; }
   .scroll { max-height: 360px; overflow: auto; border-radius: 10px; }
   .empty { background: var(--panel); border-radius: 10px; padding: 18px; color: var(--sub); }
   @media (max-width: 700px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -86,8 +91,14 @@ analytics.html — 분석 창 (노치 우클릭 → 분석…, 또는 설정 →
   <div class="sub" id="nowLabel"></div>
   <div id="model"></div>
 
+  <h2>분위기 모델 <span class="sub" id="moodCount"></span></h2>
+  <div class="sub">모든 장르가 같이 배우는 "이런 때는 신나는 게 나을까, 잔잔한 게 나을까". + 는 신나는 쪽, − 는 잔잔한 쪽. 회색 막대는 처음 값(기록 0개일 때)이에요.</div>
+  <div id="mood"></div>
+  <div class="top" style="margin-top:8px"><div class="sub" id="moodGenres"></div><div class="grow"></div>
+    <button id="exportPrior" title="배운 분위기 값만 파일로 저장해요 (기록 · 장르 이름 · 시간은 안 들어가요). 여럿이 모으면 처음 쓰는 사람의 기본값이 돼요.">기본값 내보내기</button></div>
+
   <h2>장르별</h2>
-  <div class="sub">보상 = 들은 비율(10분 = 1) + 좋아요 1 + 볼륨 올림 0.2 − 금방 바꿈 1 − 넘긴 곡</div>
+  <div class="sub">보상 = 들은 비율(10분 = 1, 자리 비운 시간 빼고) + 좋아요 1 + 볼륨 올림 0.2 − 금방 바꿈 1 − 넘긴 곡 + 끝까지 들은 곡 비율</div>
   <div id="genres"></div>
 
   <h2>배운 것 <span class="sub" id="learnCount"></span></h2>
@@ -134,10 +145,21 @@ analytics.html — 분석 창 (노치 우클릭 → 분석…, 또는 설정 →
 
     $('nowLabel').textContent = `${r.now} — 모델이 예상하는 보상(평균 ± 불확실함)과 지금 알아서 틀면 고를 확률`;
     $('model').innerHTML = r.ranking.length
-      ? `<table><tr><th>장르</th><th class="n">예상 보상</th><th class="n">불확실함</th><th>고를 확률</th><th>이유</th></tr>${r.ranking.map((x) =>
-          `<tr><td><b>${esc(x.genre)}</b></td><td class="n">${sign(x.mean)}</td><td class="n">± ${x.sd.toFixed(2)}</td>
+      ? `<table><tr><th>장르</th><th class="n">예상 보상</th><th class="n">= 장르</th><th class="n">+ 분위기</th><th class="n">불확실함</th><th>고를 확률</th><th>이유</th></tr>${r.ranking.map((x) =>
+          `<tr><td><b>${esc(x.genre)}</b></td><td class="n">${sign(x.mean)}</td><td class="n sub">${sign(x.own ?? 0)}</td><td class="n sub">${sign(x.mood ?? 0)}</td><td class="n">± ${x.sd.toFixed(2)}</td>
            <td><span class="meter"><i style="width:${Math.round(x.chance * 100)}%"></i></span>${pct(x.chance)}</td><td class="wrap sub">${esc(x.why.join(' · '))}</td></tr>`).join('')}</table>`
       : '<div class="empty">설정에서 장르를 먼저 만들어 주세요</div>';
+
+    const mood = r.mood;
+    if (mood) {
+      $('moodCount').textContent = mood.n >= 1 ? `(기록 ${Math.round(mood.n)}개로 배움)` : '(아직 처음 값)';
+      const max = Math.max(0.5, ...mood.rows.map((x) => Math.max(Math.abs(x.beta), Math.abs(x.beta0))));
+      const bar = (v, cls) => `<i class="${cls}" style="${v >= 0 ? 'left:50%' : `left:${50 - (Math.abs(v) / max) * 50}%`};width:${(Math.abs(v) / max) * 50}%"></i>`;
+      $('mood').innerHTML = `<table><tr><th>상황</th><th>잔잔 ← → 신남</th><th class="n">지금</th><th class="n">처음</th></tr>${mood.rows.map((x) =>
+        `<tr><td>${esc(x.label)}</td><td><span class="mbar">${bar(x.beta0, 'p')}${bar(x.beta, 'v')}</span></td>
+         <td class="n ${x.beta > 0.1 ? 'good' : x.beta < -0.1 ? 'bad' : ''}">${sign(x.beta)}</td><td class="n sub">${sign(x.beta0)}</td></tr>`).join('')}</table>`;
+      $('moodGenres').textContent = '장르 신남 정도: ' + mood.energy.map((g) => `${g.genre} ${Math.round(g.energy * 100)}`).join(' · ');
+    }
 
     $('genres').innerHTML = r.genres.length
       ? `<table><tr><th>장르</th><th class="n">횟수</th><th class="n">알아서</th><th class="n">평균 보상</th><th class="n">금방 바꿈</th><th class="n">좋아요</th><th class="n">들은 시간</th></tr>${r.genres.map((g) =>
@@ -163,7 +185,7 @@ analytics.html — 분석 창 (노치 우클릭 → 분석…, 또는 설정 →
       ? `<table><tr><th>언제</th><th>어떻게</th><th>상황</th><th>장르</th><th class="n">들음</th><th></th><th class="n">보상</th></tr>${r.recent.map((x) =>
           `<tr><td>${when(x.t)}</td><td><span class="src ${x.src}">${srcName[x.src] || x.src}${x.p != null ? ` ${pct(x.p)}` : ''}</span></td><td class="sub">${esc(x.label)}</td><td><b>${esc(x.genre)}</b></td>
            <td class="n">${x.listened >= 60 ? Math.round(x.listened / 60) + '분' : x.listened + '초'}</td>
-           <td class="sub">${[x.liked && '♥', x.volUp && '🔊', x.skips && `넘김 ${x.skips}`, x.early && '금방 바꿈'].filter(Boolean).join(' ')}</td>
+           <td class="sub">${[x.liked && '♥', x.volUp && '🔊', x.skips && `넘김 ${x.skips}`, (x.done || x.cut) && `끝까지 ${x.done}/${x.done + x.cut}곡`, x.away >= 60 && `자리 비움 ${Math.round(x.away / 60)}분`, x.early && '금방 바꿈'].filter(Boolean).join(' ')}</td>
            <td class="n ${x.reward >= 0.5 ? 'good' : x.reward < 0 ? 'bad' : ''}">${sign(x.reward)}</td></tr>`).join('')}</table>`
       : '<div class="empty">아직 기록이 없어요</div>';
   }
@@ -175,6 +197,10 @@ analytics.html — 분석 창 (노치 우클릭 → 분석…, 또는 설정 →
     load();
   }));
   $('reload').onclick = load;
+  $('exportPrior').onclick = async () => {
+    const r = await api.exportPrior();
+    if (r.ok) alert(`저장했어요: ${r.path}\n기록·장르 이름 없이 분위기 값만 들어 있어요.`);
+  };
   $('reset').onclick = async () => { if (confirm('상황 엔진 기록을 전부 지울까요? 처음부터 다시 배워요.')) { await api.autoForget({}); load(); } };
   window.addEventListener('focus', load);
   setInterval(load, 60000);
