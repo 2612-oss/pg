@@ -14,6 +14,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // 화면이 메인에게 보낼 수 있는 메시지 이름들
 const SEND = [
   'login', // Spotify 로그인 버튼
+  'choose-platform', // 처음 켰을 때 고른 음악 앱 ('spotify' · 'apple' · 'ytmusic' · 'youtube' · 'melon')
   'control', // 재생/일시정지/이전/다음/좋아요
   'context-menu', // 우클릭 메뉴 열기
   'open-settings', // 톱니바퀴 버튼 → 설정 창 열기

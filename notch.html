@@ -318,6 +318,12 @@ notch.html — 노치에 붙는 화면 (그림 + 동작)
   .expanded .msg.on { display: flex; }
   .msg code { background: rgba(255,255,255,.1); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .btn { border-radius: 999px; padding: 10px 20px; background: #1ed760; color: #000; font-weight: 700; font-size: 13px; }
+  /* 처음 켰을 때: 어떤 음악 앱을 쓸지 고르기 */
+  .pick { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 340px; }
+  .pick button { border-radius: 999px; padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: #fff;
+    background: rgba(255,255,255,.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); transition: background .15s; }
+  .pick button:hover { background: var(--accent); box-shadow: none; }
+  .msg .hint { font-size: 11.5px; color: rgba(255,255,255,.5); }
 </style>
 </head>
 <body>
@@ -555,10 +561,20 @@ notch.html — 노치에 붙는 화면 (그림 + 동작)
   /* ============================================================
      5. 로그인 안내 / 짧은 안내 문구
      ============================================================ */
+  let platformNames = { spotify: 'Spotify', apple: 'Apple Music', ytmusic: 'YouTube Music', youtube: 'YouTube', melon: '멜론' };
+
   function renderStatus(s) {
     const msg = $('msg');
     msg.classList.toggle('on', s !== 'ok');
-    if (s === 'no-client-id') {
+    if (s === 'choose-platform') { // 처음 켬: 어떤 음악 앱을 쓸지
+      msg.innerHTML = `<b>어디서 음악을 들을까요?</b><div class="pick"></div><div class="hint">나중에 설정에서 바꿀 수 있어요</div>`;
+      for (const [id, name] of Object.entries(platformNames)) {
+        const b = document.createElement('button');
+        b.textContent = name;
+        b.onclick = () => api.send('choose-platform', id);
+        msg.querySelector('.pick').append(b);
+      }
+    } else if (s === 'no-client-id') {
       msg.innerHTML = `<b>Client ID가 필요해요</b><div><code>config.json</code>에 Spotify 앱의<br>Client ID를 넣고 다시 실행하세요.</div>`;
     } else if (s === 'logging-in') {
       msg.innerHTML = `<div>브라우저에서 로그인을<br>완료해 주세요…</div>`;
@@ -691,10 +707,11 @@ notch.html — 노치에 붙는 화면 (그림 + 동작)
   api.getState().then((s) => {
     setLayout(s.layout);
     setPlatform(s.platform);
+    if (s.platforms) platformNames = s.platforms;
     renderStatus(s.status);
     lyrics = s.lyrics;
     render(s.track);
-    if (s.status !== 'ok') peekFor(5000); // 로그인이 필요하면 안내가 보이게 펼쳐둠
+    if (s.status !== 'ok') peekFor(s.status === 'choose-platform' ? 20000 : 5000); // 로그인·고르기가 필요하면 안내가 보이게 펼쳐둠
   });
 
   // 우클릭 → 메뉴 (로그인/로그아웃, 카메라, 제스처 테스트, 종료)

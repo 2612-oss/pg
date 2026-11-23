@@ -124,6 +124,7 @@ function applyPlatform() {
   broadcast('lyrics', null);
   broadcast('genre', null);
   broadcast('platform', platformInfo());
+  if (firstRun) return setStatus('choose-platform'); // 처음 켬: 노치에서 음악 앱을 고르면 그걸로 시작
   if (active === 'spotify') return startSpotify();
   setStatus('ok'); // 다른 플랫폼은 로그인 화면이 필요 없음
   startPolling();
@@ -540,10 +541,12 @@ const DEFAULT_CONTROLS = [
 /* ---------- 설정 저장/불러오기 ---------- */
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 let settings = null; // { platform, source, camera, genres, controls, feedback, away, schedule }
+let firstRun = false; // settings.json 이 아직 없음 = 처음 켬 → 어떤 음악 앱을 쓸지부터 물어봄
 // 카메라(제스처 인식) 종류: 'pi' 라즈베리파이 웹캠 / 'mac' 맥북 카메라 / 'off' 안 씀
 const SOURCES = { pi: '라즈베리파이 웹캠', mac: '맥북 카메라', off: '끄기' };
 
 function loadSettings() {
+  firstRun = !fs.existsSync(settingsFile());
   let saved = {};
   try {
     saved = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
@@ -600,6 +603,7 @@ function cleanSettings(s) {
 }
 
 function saveSettings(next) {
+  firstRun = false; // 한 번이라도 저장했으면 처음이 아님 (우클릭 메뉴로 플랫폼을 골라도)
   const before = settings?.platform;
   const beforeSource = settings?.source;
   const beforeSchedule = JSON.stringify(settings?.schedule);
@@ -2025,11 +2029,21 @@ ipcMain.handle('get-state', () => {
     camera: settings.camera,
     genre: currentGenre,
     platform: platformInfo(),
+    platforms: PLATFORMS, // 처음 켰을 때 고를 음악 앱 목록
     recognizers: loadConfig().recognizers || {}, // 켤 인식기 목록 (config.json)
     piStream: streamUrl(), // 카메라 영상 주소 — 라즈베리파이 또는 맥북 (있으면 카메라 칸에 띄움)
   };
 });
 ipcMain.on('login', login);
+// 처음 켰을 때 노치에서 음악 앱을 고름 → 저장하고 그 앱으로 시작 (Spotify 면 그다음에 로그인 안내)
+ipcMain.on('choose-platform', (_e, id) => {
+  if (!PLATFORMS[id]) return;
+  firstRun = false;
+  const same = settings.platform === id;
+  saveSettings({ ...settings, platform: id }); // 처음 저장 → 다음부터는 안 물어봄
+  if (same) applyPlatform(); // 플랫폼이 그대로면 saveSettings 가 다시 시작하지 않으니 직접
+  if (id !== 'spotify') notice(`${PLATFORMS[id]}로 할게요 · 바꾸려면 설정에서`);
+});
 ipcMain.on('open-settings', openSettings); // 노치의 톱니바퀴 버튼
 ipcMain.on('open-analytics', openAnalytics);
 ipcMain.handle('auto:analytics', (_e, { days = 30 } = {}) => analyticsReport(days));
