@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>장르 배너</title>
+<!-- 노션 본문용 가로 배너 (1600×300). 장르마다 다른 색, 이퀄라이저 막대 배경 -->
+<style>
+  @font-face { font-family: "Pretendard"; src: local("Pretendard Variable"), local("Pretendard"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 300px; overflow: hidden; background: #191919; }
+  body { font-family: "Pretendard", sans-serif; color: #fff; }
+
+  .wrap { position: absolute; inset: 0; overflow: hidden;
+    background: linear-gradient(100deg, #150f1f 0%, #1a1020 30%, #10121c 65%, #0d1715 100%); }
+
+  /* 이퀄라이저 막대 (아래쪽 배경) */
+  #eq { position: absolute; left: 0; right: 0; bottom: 0; height: 190px; display: flex; align-items: flex-end; gap: 6px; padding: 0 6px; opacity: .55; }
+  #eq i { flex: 1; border-radius: 4px 4px 0 0; }
+  .fade { position: absolute; inset: 0; background: linear-gradient(90deg, #160f1f 0%, rgba(22,15,31,.92) 34%, rgba(16,18,28,.35) 60%, rgba(13,23,21,.2) 100%); }
+
+  /* 왼쪽 글 */
+  .copy { position: absolute; left: 72px; top: 50%; transform: translateY(-50%); }
+  .copy small { display: block; font-size: 16px; font-weight: 600; color: rgba(255,255,255,.55); letter-spacing: .02em; }
+  .copy h2 { font-size: 58px; font-weight: 850; letter-spacing: -.02em; line-height: 1.08; margin-top: 10px; }
+  .copy h2 b { background: linear-gradient(90deg, #ff6a3d, #ff4fa3 45%, #ffd23f 75%, #4fa8ff); -webkit-background-clip: text; color: transparent; }
+
+  /* 오른쪽 장르 타일 */
+  .tiles { position: absolute; right: 64px; top: 50%; transform: translateY(-50%); display: flex; gap: 18px; }
+  .tile { width: 158px; height: 196px; border-radius: 24px; padding: 18px; position: relative;
+    background: rgba(255,255,255,.05); backdrop-filter: blur(6px);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); display: flex; flex-direction: column; }
+  .tile:nth-child(odd) { transform: translateY(-12px); }
+  .tile:nth-child(even) { transform: translateY(12px); }
+  .emoji { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; font-size: 36px; background: var(--c); box-shadow: 0 10px 28px var(--g); }
+  .name { margin-top: auto; font-size: 30px; font-weight: 850; letter-spacing: -.03em; }
+  .code { font-size: 14px; font-weight: 600; color: var(--c); font-family: ui-monospace, Menlo, monospace; }
+  .tile::after { content: ""; position: absolute; right: 16px; top: 22px; width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="eq"></div>
+    <div class="fade"></div>
+
+    <div class="copy">
+      <small>Snaptune · 제스처 장르</small>
+      <h2>손짓 하나에<br><b>장르가 바뀐다</b></h2>
+    </div>
+
+    <div class="tiles">
+      <div class="tile" style="--c:#ff6a3d; --g:rgba(255,106,61,.45)"><div class="emoji">🤘</div><div class="name">락</div><div class="code">rock</div></div>
+      <div class="tile" style="--c:#ff4fa3; --g:rgba(255,79,163,.45)"><div class="emoji">✌️</div><div class="name">팝</div><div class="code">pop</div></div>
+      <div class="tile" style="--c:#ffd23f; --g:rgba(255,210,63,.4)"><div class="emoji">🤙</div><div class="name">힙합</div><div class="code">hiphop</div></div>
+      <div class="tile" style="--c:#4fa8ff; --g:rgba(79,168,255,.45)"><div class="emoji">👌</div><div class="name">재즈</div><div class="code">jazz</div></div>
+    </div>
+  </div>
+<script>
+  // 이퀄라이저: 왼쪽→오른쪽으로 장르 색이 이어지고, 높이는 물결 + 약간의 들쭉날쭉
+  const eq = document.getElementById('eq');
+  const cols = [[255,106,61],[255,79,163],[255,210,63],[79,168,255],[30,215,96]];
+  const N = 96;
+  let seed = 7; const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    const k = t * (cols.length - 1), a = Math.floor(k), f = k - a, b = Math.min(a + 1, cols.length - 1);
+    const c = cols[a].map((v, j) => Math.round(v + (cols[b][j] - v) * f));
+    const h = 20 + 70 * (0.5 + 0.5 * Math.sin(t * 11 + 1)) * (0.55 + 0.45 * Math.sin(t * 3.3)) + rnd() * 60;
+    const bar = document.createElement('i');
+    bar.style.height = `${Math.max(12, h)}%`;
+    bar.style.background = `linear-gradient(180deg, rgba(${c},.95), rgba(${c},.05))`;
+    eq.append(bar);
+  }
+</script>
+</body>
+</html>

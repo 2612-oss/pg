@@ -1,0 +1,6 @@
+mediapipe==0.10.18 # 몸 33점 + 손 21점 관절 좌표. 1.x 는 라즈베리파이 4 CPU(AES 없음)에서 바로 죽어서 고정
+# OpenCV(웹캠 읽기, JPEG)는 mediapipe 가 opencv-contrib-python 으로 같이 깔아줘요
+numpy
+scikit-learn       # 동작 분류 모델 학습 (RandomForest)
+luma.oled          # OLED(SSD1306) 표시 — 없어도 인식은 동작
+lgpio              # 팬 켜고 끄기 (GPIO) — 없어도 인식은 동작

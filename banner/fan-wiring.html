@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>팬 연결 도면</title>
+<!-- 5V 팬을 트랜지스터로 켜고 끄기 ↔ 라즈베리파이 연결 도면 (1600×980). oled-wiring.html 과 같은 모양 -->
+<style>
+  @font-face { font-family: "Pretendard"; src: local("Pretendard Variable"), local("Pretendard"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 980px; overflow: hidden; background: #191919; }
+  svg { display: block; font-family: "Pretendard", sans-serif; }
+  .t { fill: #fff; } .s { fill: #9b9b98; } .m { font-family: ui-monospace, Menlo, monospace; }
+  .wire { fill: none; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+  .halo { fill: none; stroke: #191919; stroke-width: 19; stroke-linecap: butt; }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1600 980" width="1600" height="980">
+  <text x="100" y="78" class="t" font-size="38" font-weight="800" letter-spacing="-1">팬 연결 도면</text>
+  <text x="100" y="112" class="s" font-size="18">5V 팬 · NPN 트랜지스터로 켜고 끄기 → 라즈베리파이 핀 3개 (OLED 와 겹치지 않게)</text>
+
+  <!-- 핀 확대 칸 -->
+  <rect x="90" y="190" width="380" height="580" rx="24" fill="#16372a" stroke="rgba(255,255,255,.14)" stroke-width="2"/>
+  <text x="250" y="230" text-anchor="middle" class="s" font-size="15" font-weight="600">안쪽 줄</text>
+  <text x="345" y="230" text-anchor="start" class="s" font-size="15" font-weight="600">바깥쪽 줄 →</text>
+  <rect x="215" y="245" width="150" height="490" rx="14" fill="#0b0b0b"/>
+  <text x="280" y="800" text-anchor="middle" class="s" font-size="14">1번 핀 = 네모 납땜 · SD카드 쪽 끝</text>
+
+  <!-- ================= 선 ================= -->
+  <!-- 5V: 4번 → 팬 + -->
+  <path class="wire" stroke="#ff5a52" d="M330 350 H1060 Q1080 350 1080 330 V250 Q1080 230 1100 230 H1170"/>
+  <!-- GND: 14번 → E -->
+  <path class="wire" stroke="#d6d6d3" d="M330 700 H865"/>
+  <!-- 신호: 12번 → 저항 → B (GND 선을 한 번 넘어감) -->
+  <path class="wire" stroke="#3ddc84" d="M330 630 H740 Q760 630 760 650 V760 Q760 780 780 780 H880 Q900 780 900 760 V690"/>
+  <path class="halo" d="M760 686 V714"/>
+  <path class="wire" stroke="#3ddc84" d="M760 680 V720"/>
+  <!-- 팬 − → C -->
+  <path class="wire" stroke="#b48cff" d="M1170 400 H1000 Q980 400 980 420 V740 Q980 760 960 760 H955 Q935 760 935 740 V690"/>
+
+  <!-- 저항 1kΩ (12번 선 위) -->
+  <g transform="translate(560 630)">
+    <rect x="-6" y="-17" width="132" height="34" rx="14" fill="#e8d3a8"/>
+    <rect x="22" y="-17" width="9" height="34" fill="#6b3f1d"/><rect x="42" y="-17" width="9" height="34" fill="#111"/>
+    <rect x="62" y="-17" width="9" height="34" fill="#d62e2e"/><rect x="98" y="-17" width="9" height="34" fill="#c9a94b"/>
+    <text x="60" y="44" text-anchor="middle" class="t" font-size="15" font-weight="700">1kΩ 저항</text>
+  </g>
+
+  <!-- 트랜지스터 (평평한 면이 나를 봄) -->
+  <g>
+    <path d="M830 600 V520 Q830 470 900 470 Q970 470 970 520 V600 Z" fill="#2b2b2b" stroke="#777" stroke-width="2"/>
+    <text x="900" y="530" text-anchor="middle" class="t m" font-size="15" font-weight="700">2N2222</text>
+    <text x="900" y="552" text-anchor="middle" class="s" font-size="13">또는 S8050</text>
+    <text x="900" y="580" text-anchor="middle" class="s" font-size="12">평평한 면이 앞</text>
+    <g stroke="#c9c9c9" stroke-width="5" stroke-linecap="round"><line x1="865" y1="600" x2="865" y2="690"/><line x1="900" y1="600" x2="900" y2="690"/><line x1="935" y1="600" x2="935" y2="690"/></g>
+    <g fill="#c9a94b"><circle cx="865" cy="700" r="10"/><circle cx="900" cy="700" r="10"/><circle cx="935" cy="700" r="10"/></g>
+    <g font-size="14" font-weight="800" class="m" text-anchor="middle" fill="#fff">
+      <text x="851" y="650" text-anchor="end">E</text><text x="913" y="650" text-anchor="start">B</text><text x="949" y="650" text-anchor="start">C</text>
+    </g>
+    <text x="900" y="455" text-anchor="middle" class="s" font-size="14">트랜지스터 (스위치)</text>
+  </g>
+
+  <!-- 팬 -->
+  <g transform="translate(1170 180)">
+    <rect width="270" height="270" rx="26" fill="#2a2a2a" stroke="#555" stroke-width="2"/>
+    <circle cx="135" cy="135" r="108" fill="#202020"/>
+    <g fill="#3a3a3a">
+      <path d="M135 135 C120 80 150 40 190 50 C180 90 160 115 135 135Z"/>
+      <path d="M135 135 C190 120 230 150 220 190 C180 180 155 160 135 135Z"/>
+      <path d="M135 135 C150 190 120 230 80 220 C90 180 110 155 135 135Z"/>
+      <path d="M135 135 C80 150 40 120 50 80 C90 90 115 110 135 135Z"/>
+    </g>
+    <circle cx="135" cy="135" r="28" fill="#111" stroke="#555" stroke-width="2"/>
+    <g fill="#c9a94b"><circle cx="0" cy="50" r="12"/><circle cx="0" cy="220" r="12"/></g>
+    <text x="22" y="56" class="t m" font-size="17" font-weight="800">+</text>
+    <text x="22" y="227" class="t m" font-size="17" font-weight="800">−</text>
+    <text x="135" y="305" text-anchor="middle" class="t" font-size="18" font-weight="700">5V 팬</text>
+    <text x="135" y="330" text-anchor="middle" class="s" font-size="14">빨강 = +, 검정 = −</text>
+  </g>
+
+  <!-- 선 이름표 -->
+  <g font-size="15" font-weight="700" text-anchor="middle">
+    <g transform="translate(700 350)"><rect x="-62" y="-15" width="124" height="30" rx="15" fill="#191919" stroke="#ff5a52" stroke-width="2"/><text y="5" fill="#ff5a52">5V → 4번</text></g>
+    <g transform="translate(450 630)"><rect x="-72" y="-15" width="144" height="30" rx="15" fill="#191919" stroke="#3ddc84" stroke-width="2"/><text y="5" fill="#3ddc84">GPIO18 → 12번</text></g>
+    <g transform="translate(560 700)"><rect x="-62" y="-15" width="124" height="30" rx="15" fill="#191919" stroke="#d6d6d3" stroke-width="2"/><text y="5" fill="#d6d6d3">GND → 14번</text></g>
+    <g transform="translate(1080 400)"><rect x="-62" y="-15" width="124" height="30" rx="15" fill="#191919" stroke="#b48cff" stroke-width="2"/><text y="5" fill="#b48cff">팬 − → C</text></g>
+    <g transform="translate(830 780)"><rect x="-46" y="-15" width="92" height="30" rx="15" fill="#191919" stroke="#3ddc84" stroke-width="2"/><text y="5" fill="#3ddc84">→ B</text></g>
+  </g>
+
+  <!-- 핀 (맨 위) -->
+  <g id="pins"></g>
+
+  <!-- 설명 -->
+  <g transform="translate(1100 560)">
+    <rect width="400" height="330" rx="20" fill="#202020" stroke="rgba(255,255,255,.1)" stroke-width="2"/>
+    <text x="24" y="44" class="t" font-size="19" font-weight="800">준비물</text>
+    <text x="24" y="76" class="s" font-size="15">· 5V 팬 (선 2개: 빨강·검정)</text>
+    <text x="24" y="100" class="s" font-size="15">· NPN 트랜지스터 2N2222 또는 S8050</text>
+    <text x="24" y="124" class="s" font-size="15">· 1kΩ 저항 (갈색·검정·빨강 띠)</text>
+    <text x="24" y="168" class="t" font-size="19" font-weight="800">꽂을 때</text>
+    <text x="24" y="200" class="s" font-size="15">· 평평한 면을 나에게, 다리를 아래로 →</text>
+    <text x="38" y="224" class="s" font-size="15">왼쪽부터 <tspan class="t m" font-weight="800">E · B · C</tspan></text>
+    <text x="24" y="248" class="s" font-size="15">· GPIO 핀에 팬을 바로 꽂으면 안 돼요 (힘이 약함)</text>
+    <text x="24" y="280" class="s" font-size="15">· 팬을 4번(5V)·14번(GND)에 바로 꽂으면</text>
+    <text x="38" y="304" class="s" font-size="15">늘 돌아요 — 조절은 안 되지만 식는 건 같아요</text>
+  </g>
+</svg>
+<script>
+  // 핀 14개: [번호, 이름, 상태] — 상태: fan(이번에 쓰는 핀) / oled(OLED 가 쓰는 핀) / 빈칸
+  const P = [
+    [1, '3.3V', 'oled'], [2, '5V', ''], [3, 'SDA', 'oled'], [4, '5V', 'fan'], [5, 'SCL', 'oled'], [6, 'GND', 'oled'],
+    [7, 'GPIO4', ''], [8, 'GPIO14', ''], [9, 'GND', ''], [10, 'GPIO15', ''], [11, 'GPIO17', ''], [12, 'GPIO18', 'fan'],
+    [13, 'GPIO27', ''], [14, 'GND', 'fan'],
+  ];
+  const COLOR = { 4: '#ff5a52', 12: '#3ddc84', 14: '#d6d6d3' };
+  const NS = 'http://www.w3.org/2000/svg';
+  const g = document.getElementById('pins');
+  const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text) e.textContent = text; g.append(e); return e; };
+  for (const [n, name, use] of P) {
+    const outer = n % 2 === 0, row = Math.ceil(n / 2) - 1;
+    const x = outer ? 330 : 250, y = 280 + row * 70;
+    const fill = use === 'fan' ? COLOR[n] : use === 'oled' ? '#4a4a4a' : '#c9a94b';
+    if (n === 1) el('rect', { x: x - 15, y: y - 15, width: 30, height: 30, rx: 4, fill });
+    else el('circle', { cx: x, cy: y, r: 15, fill });
+    el('text', { x, y: y + 5, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800, fill: '#111', class: 'm' }, n);
+    const label = use === 'oled' ? `${name} · OLED` : name;
+    const color = use === 'fan' ? COLOR[n] : use === 'oled' ? '#777' : '#bdbdbd';
+    if (!outer) el('text', { x: x - 26, y: y + 5, 'text-anchor': 'end', 'font-size': 14, 'font-weight': 700, fill: color }, label);
+    else if (use !== 'fan') el('text', { x: x + 26, y: y + 5, 'font-size': 14, 'font-weight': 700, fill: color }, label);
+  }
+</script>
+</body>
+</html>

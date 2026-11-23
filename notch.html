@@ -1,0 +1,868 @@
+<!doctype html>
+<!--
+============================================================
+notch.html — 노치에 붙는 화면 (그림 + 동작)
+============================================================
+생김새는 세 가지 상태예요.
+  1) 접힘       : 노치 양옆 작은 검은 알약 (왼쪽 돌아가는 앨범커버, 오른쪽 이퀄라이저)
+  2) 접힘+한 줄 : 곡이 있으면 알약 아래로 살짝 늘어나 가사(없으면 제목 · 가수) 한 줄
+  3) 펼침       : 마우스를 올리거나 곡이 바뀌면 아래로 쭉 펼쳐짐
+                  위에서부터: 곡 정보(커버·제목·좋아요) → 가사 한 줄 → 진행바 → 재생 버튼 → 카메라
+
+웹캠/제스처는 따로 파일로 나눠 뒀어요.
+  camera.js                 웹캠 켜고 끄기, 프레임을 제스처 엔진에 넘김
+  gestures.js               인식기 등록 + 오작동 방지(다수결, 유지 시간) → main.js 로 제스처 이름 전송
+  recognizers/*.js          인식기들 (예시: motion-swipe.js)
+  settings.html             제스처 이름 → 동작/음악 짝을 정하는 설정 화면 (우클릭 → 설정…)
+
+창 크기는 늘 그대로이고, CSS 의 clip-path 로 "보이는 부분"만 바꿔서 펼치고 접어요.
+접혀 있을 땐 main.js 가 창을 클릭 통과 상태로 둬서 메뉴바를 그대로 쓸 수 있어요.
+
+파일 구성
+  <style>  : 생김새 (CSS)
+  <body>   : 화면 뼈대 (HTML)
+  <script> : 동작 (JS) — 맨 아래 "메인과 연결" 부분부터 읽으면 흐름이 잘 보여요
+============================================================
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<!-- 이 페이지는 자기 파일, 그리고 https 이미지(앨범커버)만 불러올 수 있게 제한 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: http: data: blob:; connect-src 'self' http:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; media-src 'self' mediastream: blob:">
+<title>Snaptune</title>
+<!-- 디자인: 검은 카드 위에 앨범 색이 위쪽에만 은은하게 번지고, 곡 정보 → 조작 → 카메라 순서로 쌓여요 -->
+<style>
+  /* ============================================================
+     1. 기본 값 (색, 크기)
+     ============================================================ */
+
+  /* --accent: 앨범커버에서 뽑은 대표 색. @property 로 등록해야 색이 부드럽게 바뀜 */
+  @property --accent { syntax: "<color>"; inherits: true; initial-value: #8b6cff; }
+  :root {
+    --accent: #8b6cff;
+    --text: #fff;
+    --sub: rgba(255, 255, 255, .58);
+    --line: rgba(255, 255, 255, .09);
+    --menu-h: 32px; /* 메뉴바(=노치) 높이. main.js 가 실제 값을 알려줌 */
+    --strip-h: 26px; /* 노치 아래 가사 한 줄 높이 */
+    --notch-w: 190px; /* 노치 너비 추정값 */
+    --pill-side: 46px; /* 노치 양옆으로 튀어나오는 폭 */
+    --pill-w: calc(var(--notch-w) + var(--pill-side) * 2);
+    --card-w: 360px; /* 펼쳤을 때 카드 크기 (main.js 의 NOTCH_PANEL_W, NOTCH_CARD_H 와 같게) */
+    --card-h: 380px;
+    transition: --accent .8s;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: transparent; /* 창 자체는 투명. 카드만 보임 */
+    overflow: hidden;
+    font-family: "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif;
+    color: var(--text);
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+  /* ============================================================
+     2. 카드 — 노치 아래로 펼쳐지는 검은 판
+     ============================================================
+     clip-path: inset(위 오른쪽 아래 왼쪽 round 모서리)
+     - 접힘 : 알약 크기만 남기고 잘라냄
+     - 한 줄 : 알약 + 가사 줄 높이만큼
+     - 펼침 : 다 보여줌                                               */
+  .card {
+    position: absolute; left: 30px; top: 0;
+    width: var(--card-w); height: var(--card-h);
+    padding-top: var(--menu-h); /* 맨 위 노치 높이만큼은 비워둠 */
+    border-radius: 0 0 36px 36px;
+    background: #000;
+    overflow: hidden;
+    --side: calc((var(--card-w) - var(--pill-w)) / 2); /* 알약 바깥 양옆 잘라낼 폭 */
+    clip-path: inset(0 var(--side) calc(var(--card-h) - var(--menu-h)) var(--side) round 0 0 14px 14px);
+    transition: clip-path .32s cubic-bezier(.4, 0, .2, 1);
+  }
+  .strip .card {
+    clip-path: inset(0 var(--side) calc(var(--card-h) - var(--menu-h) - var(--strip-h)) var(--side) round 0 0 16px 16px);
+  }
+  .expanded .card {
+    clip-path: inset(0 0 0 0 round 0 0 36px 36px);
+    transition: clip-path .5s cubic-bezier(.25, 1.25, .45, 1); /* 펼칠 땐 살짝 튕기게 */
+  }
+
+  /* 카드 배경: 앨범커버를 흐리게 깔되, 위쪽에만 은은하게 (아래로 갈수록 검정) */
+  .bg {
+    position: absolute; inset: -40px;
+    background: center / cover no-repeat;
+    filter: blur(44px) saturate(1.7) brightness(.55);
+    -webkit-mask-image: linear-gradient(#000 0%, rgba(0,0,0,.35) 45%, transparent 78%);
+    opacity: 0; transition: opacity .4s;
+  }
+  .expanded .bg { opacity: .8; }
+
+  /* 카드 안 내용 전체. 접혀 있을 땐 숨기고, 펼쳐지면 살짝 늦게 나타남 */
+  .content {
+    position: relative; z-index: 1; height: 100%;
+    display: flex; flex-direction: column;
+    padding: 12px 16px 16px;
+    transition: opacity .25s .12s;
+  }
+  body:not(.expanded) .content { opacity: 0; visibility: hidden; transition: opacity .1s; }
+
+  /* ============================================================
+     3. 알약 — 노치 양옆 (왼쪽 앨범커버, 오른쪽 이퀄라이저)
+     ============================================================ */
+  .pill {
+    position: absolute; left: 50%; top: 0; z-index: 20;
+    width: var(--pill-w); height: var(--menu-h); margin-left: calc(var(--pill-w) / -2);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px 0 12px;
+    pointer-events: none; /* 마우스 판정은 JS 에서 직접 함 */
+  }
+  /* 제스처가 인식되면 알약 둘레가 한 번 반짝 (초록 = 실행함, 노랑 = 인식했지만 무시함) */
+  .pill::after {
+    content: ""; position: absolute; inset: 3px 4px; border-radius: 999px; opacity: 0;
+    box-shadow: 0 0 0 2px var(--fb, #8b6cff), 0 0 14px 2px var(--fb, #8b6cff);
+  }
+  body[data-fb="ignored"] .pill::after { --fb: #f5c542; }
+  body.fb .pill::after { animation: fb .7s ease-out; }
+  @keyframes fb { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+  .pill-cover {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: #2a2a2a center / cover no-repeat;
+    box-shadow: 0 0 0 1.5px rgba(255,255,255,.12), 0 0 8px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+
+  /* 이퀄라이저 막대 3개: 재생 중일 때만 움직임 */
+  .eq { display: flex; gap: 2px; align-items: flex-end; height: 12px; }
+  .eq i {
+    width: 2.5px; height: 100%; border-radius: 1px;
+    background: var(--accent); transform-origin: bottom; transform: scaleY(.3);
+    animation: eq .9s ease-in-out infinite; animation-play-state: paused;
+  }
+  .eq i:nth-child(2) { animation-delay: -.3s; }
+  .eq i:nth-child(3) { animation-delay: -.6s; }
+  .playing .eq i { animation-play-state: running; }
+  @keyframes eq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+
+  /* 노치 아래 한 줄 (가사 또는 제목 · 가수) */
+  .strip-text {
+    position: absolute; left: 50%; top: var(--menu-h); z-index: 20;
+    width: var(--pill-w); height: var(--strip-h); margin-left: calc(var(--pill-w) / -2);
+    padding: 0 16px; pointer-events: none;
+    font-size: 12px; font-weight: 600; line-height: calc(var(--strip-h) - 5px);
+    text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--accent) 30%, #fff);
+    opacity: 0; transition: opacity .12s;
+  }
+  .strip:not(.expanded) .strip-text { opacity: 1; transition: opacity .25s .15s; }
+  .strip-text.change { animation: slideIn .35s ease-out; }
+
+  /* ============================================================
+     4. 곡 정보 줄 — 앨범커버 · 플랫폼/장르 · 제목 · 가수 · 좋아요
+     ============================================================ */
+  .now { display: flex; align-items: center; gap: 12px; }
+  .cover {
+    flex: none; width: 56px; height: 56px; border-radius: 14px;
+    background: #1c1c1c center / cover no-repeat;
+    box-shadow: 0 8px 22px rgba(0,0,0,.55), 0 0 0 1px var(--line);
+  }
+  .meta { flex: 1; min-width: 0; }
+  /* 맨 윗줄: ● Spotify  [락] */
+  .tags { display: flex; align-items: center; gap: 6px; height: 16px; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--sub); }
+  .platform::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: var(--dot, #1ed760); }
+  [data-platform="apple"] { --dot: #fa2d48; }
+  [data-platform="youtube"], [data-platform="ytmusic"] { --dot: #ff0033; }
+  [data-platform="melon"] { --dot: #00cd3c; }
+  /* 지금 틀고 있는 장르 (제스처로 장르를 틀면 나타남) */
+  .genre-chip {
+    display: none; padding: 0 7px; border-radius: 999px; line-height: 15px;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: color-mix(in srgb, var(--accent) 70%, #fff);
+  }
+  .genre-chip.on { display: inline-block; animation: pop .35s; }
+  .title, .artist { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .title { font-size: 16px; font-weight: 700; letter-spacing: -.015em; margin-top: 3px; }
+  .artist { font-size: 12.5px; color: var(--sub); margin-top: 1px; }
+
+  .like { flex: none; width: 32px; height: 32px; border-radius: 50%; display: none; place-items: center; background: rgba(255,255,255,.07); transition: background .2s; }
+  .like.ready { display: grid; } /* 좋아요 여부를 알아온 곡에서만 보임 */
+  .like:hover { background: rgba(255,255,255,.14); }
+  .like svg { width: 16px; height: 16px; fill: none; stroke: #fff; stroke-width: 2; transition: fill .2s, stroke .2s; }
+  .like.on svg { fill: var(--accent); stroke: var(--accent); }
+  .like.pop svg { animation: pop .35s; }
+  @keyframes pop { 50% { transform: scale(1.35); } }
+
+  /* ============================================================
+     5. 가사 한 줄 · 진행바 · 재생 버튼
+     ============================================================ */
+  .lyric {
+    height: 18px; margin-top: 10px;
+    font-size: 12.5px; font-weight: 600; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--accent) 40%, #fff);
+  }
+  .lyric.dim { color: var(--sub); font-weight: 400; } /* 가사가 없을 땐 앨범 이름을 흐리게 */
+  .lyric.change { animation: slideIn .35s ease-out; }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } }
+
+  /* 0:42 ───●────── 3:15 */
+  .time { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; font-variant-numeric: tabular-nums; color: var(--sub); }
+  .time span { flex: none; width: 28px; }
+  .time span:last-child { text-align: right; }
+  .bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.14); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 2px; background: var(--accent); }
+  .no-time .time { visibility: hidden; } /* 길이를 모르는 곡(멜론)은 숨김 */
+
+  .controls { position: relative; display: flex; align-items: center; justify-content: center; gap: 26px; margin-top: 6px; }
+  /* 설정(톱니바퀴) 버튼: 재생 버튼 줄 오른쪽 끝 */
+  .gear { position: absolute; right: 0; top: 50%; margin-top: -16px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.07); color: var(--sub); transition: background .2s, color .2s, transform .3s; }
+  .gear:hover { background: rgba(255,255,255,.14); color: #fff; transform: rotate(40deg); }
+  .gear svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .ctl { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; transition: transform .15s, background .2s; }
+  .ctl:hover { background: rgba(255,255,255,.1); }
+  .ctl:active { transform: scale(.9); }
+  .ctl svg { width: 18px; height: 18px; fill: currentColor; }
+  .ctl.main { width: 42px; height: 42px; background: #fff; color: #000; }
+  .ctl.main:hover { background: #fff; transform: scale(1.06); }
+  .ctl.main:active { transform: scale(.94); }
+  .ctl .i-pause, .playing .ctl .i-play { display: none; }
+  .playing .ctl .i-pause { display: block; }
+
+  /* ============================================================
+     6. 카메라 칸 — 맨 아래 넓은 타일
+     ============================================================
+     <video> 에 웹캠을 띄우고 scaleX(-1) 로 거울처럼 뒤집어요 (내가 오른손 들면 화면도 오른쪽).
+     카메라 상태는 body 의 data-cam 속성으로 옴 (camera.js 참고) → 상태별 안내 문구 */
+  .cam-box {
+    flex: 1; min-height: 0; position: relative; margin-top: 10px;
+    border-radius: 20px; overflow: hidden;
+    background: #0d0d0d;
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  #cam {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    transform: scaleX(-1); /* 거울 */
+    opacity: 0; transition: opacity .4s;
+  }
+  [data-cam="on"] #cam { opacity: 1; }
+  /* 인식 프로그램이 보내주는 영상 (라즈베리파이 웹캠 또는 맥북 카메라). 이미 거울로 뒤집어 보내서 여기선 안 뒤집음 */
+  #piCam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  [data-cam="pi"] #piCam { display: block; }
+  [data-cam="pi"] #cam, [data-cam="pi"] .cam-msg { display: none; }
+  [data-cam="pi"] .cam-live { display: flex; }
+  [data-cam="pi-off"] .cam-msg::before { content: "카메라 영상을 기다리는 중…\A안 나오면 우클릭 → 카메라 확인"; }
+
+  /* 카메라가 꺼져 있거나 안 될 때 가운데 안내 */
+  .cam-msg {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: 11px; line-height: 1.6; color: var(--sub); text-align: center; white-space: pre;
+  }
+  [data-cam="on"] .cam-msg { display: none; }
+  .cam-msg::before { content: "카메라 꺼짐\A우클릭 → 카메라에서 고르세요"; }
+  [data-cam="starting"] .cam-msg::before { content: "카메라 켜는 중…"; }
+  [data-cam="denied"] .cam-msg::before { content: "카메라 권한이 없어요\A시스템 설정 → 개인정보 보호 및 보안 → 카메라"; }
+  [data-cam="error"] .cam-msg::before { content: "카메라를 열지 못했어요"; }
+
+  /* 왼쪽 위 "● LIVE" 표시 (켜져 있을 때만) */
+  .cam-live {
+    position: absolute; left: 10px; top: 10px; display: none; align-items: center; gap: 5px;
+    padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,.5); backdrop-filter: blur(8px);
+    font-size: 9.5px; font-weight: 700; letter-spacing: .1em;
+  }
+  .cam-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ff453a; animation: blink 1.6s infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+  [data-cam="on"] .cam-live { display: flex; }
+
+  /* 제스처로 조작하면 가운데에 "다음 곡" 같은 표시가 잠깐 뜸 */
+  .gesture-badge {
+    position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+    padding: 7px 14px; border-radius: 999px; white-space: nowrap;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(10px);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+    color: color-mix(in srgb, var(--accent) 60%, #fff);
+    font-size: 12.5px; font-weight: 700;
+    opacity: 0; pointer-events: none;
+  }
+  .gesture-badge.show { animation: badge 1.4s ease-out; }
+  @keyframes badge {
+    0% { opacity: 0; transform: translate(-50%, 6px) scale(.92); }
+    12%, 75% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    100% { opacity: 0; }
+  }
+
+  /* 맨 아래 유지 게이지: "유지해야 하는" 제스처가 얼마나 찼는지 */
+  .hold { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
+  .hold i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+
+  /* ============================================================
+     7. 짧은 안내 / 로그인 안내
+     ============================================================ */
+  .notice {
+    position: absolute; left: 50%; top: calc(var(--menu-h) + 78px); z-index: 5;
+    transform: translate(-50%, -8px); max-width: 90%;
+    padding: 7px 14px; border-radius: 999px;
+    background: rgba(30, 30, 30, .92); box-shadow: 0 6px 20px rgba(0,0,0,.5), inset 0 0 0 1px var(--line);
+    font-size: 11.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+  }
+  .notice.on { opacity: 1; transform: translate(-50%, 0); }
+
+  .msg { /* 로그인이 필요할 때 카드를 덮는 안내 */
+    position: absolute; inset: 0; z-index: 6;
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    padding: calc(var(--menu-h) + 12px) 24px 24px;
+    text-align: center; font-size: 13.5px; line-height: 1.55;
+    background: rgba(0, 0, 0, .92);
+  }
+  .expanded .msg.on { display: flex; }
+  .msg code { background: rgba(255,255,255,.1); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .btn { border-radius: 999px; padding: 10px 20px; background: #1ed760; color: #000; font-weight: 700; font-size: 13px; }
+</style>
+</head>
+<body>
+  <!-- 노치 양옆 알약 -->
+  <div class="pill" id="pill">
+    <div class="pill-cover" id="pillCover"></div>
+    <div class="eq"><i></i><i></i><i></i></div>
+  </div>
+  <!-- 노치 아래 한 줄 -->
+  <div class="strip-text" id="stripText"></div>
+
+  <!-- 펼쳐지는 카드 -->
+  <div class="card" id="card">
+    <div class="bg" id="bg"></div>
+
+    <div class="content">
+      <!-- 곡 정보: 커버 · 제목/가수 · 좋아요 -->
+      <div class="now">
+        <div class="cover" id="cover"></div>
+        <div class="meta">
+          <div class="tags">
+            <span class="platform" id="platform">Spotify</span>
+            <span class="genre-chip" id="genreChip"></span>
+          </div>
+          <div class="title" id="title">재생 중인 곡 없음</div>
+          <div class="artist" id="artist"></div>
+        </div>
+        <!-- 좋아요: 좋아요 여부를 알아온 곡에서만 보임 -->
+        <button class="like" id="like" title="좋아요"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.8-4.7-9.6-9.5C1.1 7.6 3.4 4 7 4c2.1 0 3.6 1.1 5 2.8C13.4 5.1 14.9 4 17 4c3.6 0 5.9 3.6 4.6 7-1.8 4.8-9.6 9.5-9.6 9.5Z"/></svg></button>
+      </div>
+
+      <div class="lyric dim" id="lyric"></div>
+
+      <!-- 진행바 -->
+      <div class="time">
+        <span id="timeNow">0:00</span>
+        <div class="bar"><i id="progress"></i></div>
+        <span id="timeTotal">0:00</span>
+      </div>
+
+      <!-- 재생 버튼 -->
+      <div class="controls">
+        <button class="ctl" data-act="previous" title="이전 곡"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button class="ctl main" data-act="toggle" title="재생/일시정지">
+          <svg class="i-play" viewBox="0 0 24 24"><path d="M8 4.5v15L20 12z"/></svg>
+          <svg class="i-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+        </button>
+        <button class="ctl" data-act="next" title="다음 곡"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+        <!-- 설정 창 열기 (우클릭 → 설정… 과 같음) -->
+        <button class="gear" id="gear" title="설정"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></button>
+      </div>
+
+      <!-- 웹캠 화면 (camera.js 가 #cam 에 영상을 넣음, 라즈베리파이 영상은 #piCam) -->
+      <div class="cam-box">
+        <video id="cam" muted playsinline></video>
+        <img id="piCam" alt="">
+        <div class="cam-msg"></div>
+        <div class="cam-live">LIVE</div>
+        <div class="gesture-badge" id="gestureBadge"></div>
+        <div class="hold"><i id="holdBar"></i></div>
+      </div>
+    </div>
+
+    <div class="notice" id="notice"></div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+<script>
+  /* ============================================================
+     0. 준비
+     ============================================================ */
+  const $ = (id) => document.getElementById(id);
+  const api = window.spotify; // preload.js 가 열어준 통로
+
+  /* ============================================================
+     1. 곡 표시
+     ============================================================
+     main.js 가 1.5초마다 지금 곡 정보를 보내줘요(track).
+     track = { id, title, artist, album, image, isPlaying, progress, duration, accent, liked }
+     progress 는 "보낸 순간"의 재생 위치라서, 그 사이 흐른 시간은 syncedAt 으로 직접 더해요. */
+  let track = null;
+  let syncedAt = 0; // track 을 받은 시각
+  let platform = { id: 'spotify', name: 'Spotify' }; // 지금 조작하는 음악 플랫폼 (main.js 가 알려줌)
+
+  // 곡이 없을 때 가수 자리에 보여줄 안내 (플랫폼마다)
+  const EMPTY_HINT = {
+    spotify: 'Spotify에서 음악을 틀어보세요',
+    apple: '음악 앱에서 틀거나 장르 제스처를 해 보세요',
+    ytmusic: '장르 제스처를 하면 YouTube Music에서 틀어요',
+    youtube: '장르 제스처를 하면 YouTube에서 틀어요',
+  };
+
+  // 밀리초 → "3:07"
+  const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+
+  function setPlatform(p) {
+    platform = p;
+    document.body.dataset.platform = p.id;
+    $('platform').textContent = p.name;
+    if (!track) $('artist').textContent = EMPTY_HINT[p.id] || '';
+  }
+  let swapping = false; // 곡이 바뀌어 판을 갈아끼우는 중
+
+  // 지금 재생 위치(ms) = 받은 위치 + 받은 뒤 흐른 시간
+  const position = () =>
+    track ? Math.min(track.duration, track.progress + (track.isPlaying ? performance.now() - syncedAt : 0)) : 0;
+
+  // 앨범커버 그림과 대표 색을 화면에 적용
+  // (곡 정보 줄의 커버, 노치 알약 커버, 펼친 카드의 흐린 배경)
+  function setArt(t) {
+    const url = t?.image ? `url("${t.image}")` : '';
+    $('cover').style.backgroundImage = url;
+    $('pillCover').style.backgroundImage = url;
+    $('bg').style.backgroundImage = url;
+    // 대표 색이 있으면 그 색, 없으면 초록
+    document.documentElement.style.setProperty('--accent', t?.accent || '#8b6cff');
+  }
+
+  // 곡이 바뀔 때: 작은 커버가 살짝 작아졌다가 새 커버로 돌아오는 애니메이션
+  // (예전 LP 버전에선 판을 갈아끼웠는데, 카메라 버전이라 커버만 바꿔요)
+  function swapRecord() {
+    swapping = true;
+    const cover = $('cover');
+    cover.style.transition = 'transform .18s, opacity .18s';
+    cover.style.transform = 'scale(.6)';
+    cover.style.opacity = '0';
+    setTimeout(() => {
+      setArt(track); // 그사이 또 곡이 바뀌었을 수 있어서 최신 track 으로
+      cover.style.transform = '';
+      cover.style.opacity = '';
+      swapping = false;
+    }, 180);
+  }
+
+  // 받은 곡 정보로 화면을 다시 그림
+  function render(t) {
+    const prevId = track?.id;
+    track = t;
+    syncedAt = performance.now();
+    document.body.classList.toggle('playing', !!t?.isPlaying);
+    renderLike();
+    document.body.classList.toggle('no-time', !t?.duration);
+    $('timeTotal').textContent = fmt(t?.duration || 0);
+    if (!t) {
+      $('title').textContent = '재생 중인 곡 없음';
+      $('artist').textContent = EMPTY_HINT[platform.id] || '';
+      $('progress').style.width = '0';
+      $('timeNow').textContent = '0:00';
+      setArt(null);
+      showLyric(null);
+      return;
+    }
+    $('title').textContent = t.title;
+    $('artist').textContent = t.artist;
+    if (prevId && prevId !== t.id) swapRecord();
+    else if (!swapping) setArt(t);
+  }
+
+  /* ============================================================
+     2. 좋아요 (♥)
+     ============================================================
+     track.liked : true(좋아요 함) / false(안 함) / null(아직 모름 → 버튼 숨김)
+     누르면 서버 응답을 기다리지 않고 화면부터 바꾸고, main.js 에 'like' 를 보내요. */
+  function renderLike() {
+    const btn = $('like');
+    btn.classList.toggle('ready', track?.liked != null);
+    btn.classList.toggle('on', !!track?.liked);
+  }
+
+  $('like').onclick = () => {
+    if (track?.liked == null) return;
+    track.liked = !track.liked;
+    renderLike();
+    if (track.liked) replay($('like'), 'pop');
+    api.send('control', 'like');
+  };
+
+  /* ============================================================
+     3. 가사
+     ============================================================
+     lyrics = { id: 곡 id, lines: [{ t: 시작 ms, text: '가사' }, ...] }
+     매 프레임 지금 위치에 맞는 줄을 찾아서, 줄이 바뀔 때만 화면을 바꿔요. */
+  let lyrics = null;
+  let lyricIdx = -2; // 지금 보여주는 줄 번호 (-2: 아직 없음, -1: 가사 없음)
+
+  function showLyric(text, dim) {
+    const el = $('lyric');
+    el.textContent = text || '';
+    el.classList.toggle('dim', !!dim);
+    replay(el, 'change');
+    // 노치 아래 한 줄: 가사가 있으면 가사, 없으면 제목 · 가수
+    const strip = $('stripText');
+    strip.textContent = dim && text !== '♪' && track ? `${track.title} · ${track.artist}` : text || '';
+    replay(strip, 'change');
+  }
+
+  function updateLyric() {
+    if (!track) return;
+    const lines = lyrics?.id === track.id ? lyrics.lines : null;
+    if (!lines?.length) {
+      if (lyricIdx !== -1) { lyricIdx = -1; showLyric(track.album, true); }
+      return;
+    }
+    const pos = position() + 250; // 살짝 먼저 보여줘야 노래와 맞아 보임
+    let i = -1;
+    while (i + 1 < lines.length && lines[i + 1].t <= pos) i++;
+    if (i === lyricIdx) return;
+    lyricIdx = i;
+    if (i < 0) showLyric('♪', true); // 첫 가사 전 (전주)
+    else showLyric(lines[i].text || '♪', !lines[i].text); // 빈 줄은 간주
+  }
+
+  /* ============================================================
+     4. 재생 버튼
+     ============================================================ */
+  document.querySelectorAll('.ctl').forEach((b) => {
+    b.onclick = () => {
+      let act = b.dataset.act; // previous / toggle / next
+      if (act === 'toggle') {
+        if (!track) return;
+        act = track.isPlaying ? 'pause' : 'play';
+        // 서버 응답을 기다리지 않고 화면부터 바꿈
+        track.progress = position();
+        syncedAt = performance.now();
+        track.isPlaying = !track.isPlaying;
+        document.body.classList.toggle('playing', track.isPlaying);
+      }
+      api.send('control', act);
+    };
+  });
+
+  // 톱니바퀴 → 설정 창
+  $('gear').onclick = () => api.send('open-settings');
+
+  /* ============================================================
+     5. 로그인 안내 / 짧은 안내 문구
+     ============================================================ */
+  function renderStatus(s) {
+    const msg = $('msg');
+    msg.classList.toggle('on', s !== 'ok');
+    if (s === 'no-client-id') {
+      msg.innerHTML = `<b>Client ID가 필요해요</b><div><code>config.json</code>에 Spotify 앱의<br>Client ID를 넣고 다시 실행하세요.</div>`;
+    } else if (s === 'logging-in') {
+      msg.innerHTML = `<div>브라우저에서 로그인을<br>완료해 주세요…</div>`;
+    } else if (s === 'logged-out' || s === 'relogin') {
+      msg.innerHTML = (s === 'relogin' ? `<div>권한이 바뀌어서<br>한 번만 다시 로그인해 주세요</div>` : `<div>Spotify 계정을 연결하세요</div>`)
+        + `<button class="btn" id="loginBtn">Spotify 로그인</button>`;
+      $('loginBtn').onclick = () => api.send('login');
+    }
+  }
+
+  let noticeTimer;
+  function notice(text) {
+    $('notice').textContent = text;
+    $('notice').classList.add('on');
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => $('notice').classList.remove('on'), 2600);
+    peekFor(2800); // 접혀 있으면 안내를 볼 수 있게 잠깐 펼침
+  }
+
+  /* ============================================================
+     6. 노치 펼치기 / 접기
+     ============================================================
+     - 알약(또는 아래 한 줄) 위에 마우스가 오면 펼침
+     - 펼친 카드에서 마우스가 나가고 0.45초 지나면 접음
+     - 곡이 바뀌면(peek) 4.5초 동안 펼쳐둠
+     접혀 있을 땐 창이 클릭을 뒤로 통과시켜요. 그래도 마우스 움직임은 들어오기 때문에
+     (main.js 의 forward: true) 알약 위에 왔는지 여기서 계산할 수 있어요. */
+  let expanded = false;
+  let overPill = false; // 마우스가 알약 위 → 클릭을 받아야 함
+  let hoverInside = false; // 마우스가 알약이나 펼친 카드 위
+  let leftAt = 0; // 마우스가 나간 시각
+  let peekUntil = 0; // 이 시각까지는 접지 않음
+
+  function setExpanded(v) {
+    if (expanded === v) return;
+    expanded = v;
+    document.body.classList.toggle('expanded', v);
+    api.send('interactive', v || overPill);
+    syncStream(); // 카메라 영상은 펼쳤을 때만 받아요
+  }
+
+  function peekFor(ms) {
+    peekUntil = Math.max(peekUntil, performance.now() + ms);
+    leftAt = performance.now();
+    setExpanded(true);
+  }
+
+  function setLayout(l) {
+    document.documentElement.style.setProperty('--menu-h', `${l.menuH}px`);
+    document.documentElement.style.setProperty('--notch-w', `${l.notchW}px`);
+  }
+
+  window.addEventListener('mousemove', (e) => {
+    // 알약 영역 (아래 한 줄이 보이면 그만큼 아래까지)
+    const pr = $('pill').getBoundingClientRect();
+    const bottom = document.body.classList.contains('strip') ? $('stripText').getBoundingClientRect().bottom : pr.bottom;
+    const inPill = e.clientX >= pr.left && e.clientX <= pr.right && e.clientY <= bottom + 4;
+    // 펼친 카드 영역
+    const cr = $('card').getBoundingClientRect();
+    const inCard = expanded && e.clientX >= cr.left - 4 && e.clientX <= cr.right + 4 && e.clientY <= cr.bottom + 4;
+
+    if (inPill !== overPill) {
+      overPill = inPill;
+      api.send('interactive', expanded || overPill);
+    }
+    const inside = inPill || inCard;
+    if (hoverInside && !inside) leftAt = performance.now();
+    hoverInside = inside;
+    if (inPill && !expanded) setExpanded(true);
+  });
+  document.addEventListener('mouseleave', () => {
+    if (hoverInside) leftAt = performance.now();
+    hoverInside = false;
+  });
+
+  // 매 프레임 확인: 곡이 있으면 아래 한 줄, 마우스가 떠난 지 0.45초면 접기
+  function updateNotch(now) {
+    document.body.classList.toggle('strip', !!track);
+    if (expanded && !hoverInside && now > peekUntil && now - leftAt > 450) setExpanded(false);
+  }
+
+  /* ============================================================
+     7. 매 프레임 (1초에 약 60번): 알약 커버 회전, 진행바, 가사, 노치
+     ============================================================ */
+  const RPM_DEG = 45; // 알약 속 앨범커버가 1초에 도는 각도
+  let angle = 0, speed = 0, last = performance.now();
+
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); // 지난 프레임부터 흐른 초
+    last = now;
+
+    // 재생하면 금방 빨라지고, 멈추면 천천히 서서히 멈춤
+    const target = track?.isPlaying && !swapping ? RPM_DEG : 0;
+    speed += (target - speed) * Math.min(1, dt * (target > speed ? 4 : 1.6));
+    angle = (angle + speed * dt) % 360;
+    $('pillCover').style.transform = `rotate(${angle}deg)`;
+
+    const p = track?.duration ? position() / track.duration : 0;
+    if (track?.duration) {
+      $('progress').style.width = p * 100 + '%';
+      const text = fmt(position());
+      if ($('timeNow').textContent !== text) $('timeNow').textContent = text; // 초가 바뀔 때만
+    }
+
+    updateLyric();
+    updateNotch(now);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // 같은 CSS 애니메이션을 처음부터 다시 틀기
+  function replay(el, cls) {
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+  }
+
+  /* ============================================================
+     8. 메인(main.js)과 연결 — 여기서부터 읽으면 흐름이 보여요
+     ============================================================ */
+  api.on('track', render); // 1.5초마다 곡 정보
+  api.on('status', renderStatus); // 로그인 상태
+  api.on('lyrics', (l) => { lyrics = l; lyricIdx = -2; }); // 새 곡의 가사
+  api.on('notice', notice); // 짧은 안내
+  api.on('peek', () => peekFor(4500)); // 곡이 바뀜 → 잠깐 펼침
+  api.on('layout', setLayout); // 모니터가 바뀌어 노치 크기가 바뀜
+  api.on('platform', setPlatform); // 음악 플랫폼이 바뀜 (설정에서 바꾸거나, 유튜브로 대신 틀 때)
+
+  // 처음 켰을 때 현재 상태를 한 번에 받아옴
+  api.getState().then((s) => {
+    setLayout(s.layout);
+    setPlatform(s.platform);
+    renderStatus(s.status);
+    lyrics = s.lyrics;
+    render(s.track);
+    if (s.status !== 'ok') peekFor(5000); // 로그인이 필요하면 안내가 보이게 펼쳐둠
+  });
+
+  // 우클릭 → 메뉴 (로그인/로그아웃, 카메라, 제스처 테스트, 종료)
+  window.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    api.send('context-menu');
+  });
+</script>
+
+<!-- 웹캠 + 제스처 (따로 파일). 순서 중요: 엔진 → 인식기 → 카메라 -->
+<script src="gestures.js"></script>
+<script src="recognizers/motion-swipe.js"></script>
+<script src="camera.js"></script>
+<script>
+  /* ============================================================
+     9. 웹캠 + 제스처 연결
+     ============================================================
+     인식기 켜고 끄기는 config.json 의 "recognizers" 로 해요.
+       "recognizers": { "motionSwipe": true }
+     새 인식기를 만들면 recognizers/ 에 파일을 넣고, 위에 <script> 한 줄,
+     아래 RECOGNIZERS 에 한 줄 추가하면 끝. */
+  const RECOGNIZERS = {
+    motionSwipe: () => Gesture.add('motion-swipe', createMotionSwipe(), { hold: 0 }), // 순간 동작
+    // handPose: () => Gesture.add('hand-pose', createHandPose(), { hold: 1200 }),   // 예: 손 모양 (1.2초 유지)
+  };
+
+  // 제스처로 조작됐을 때: 카메라 칸에 "다음 곡" 표시 + 노치를 잠깐 펼침
+  function showGesture(g) {
+    const badge = document.getElementById('gestureBadge');
+    badge.textContent = g.label;
+    replay(badge, 'show');
+    peekFor(1600);
+    // 인식 피드백: 알약이 한 번 반짝 + 짧은 소리 (설정에서 소리를 끌 수 있음)
+    document.body.dataset.fb = g.kind;
+    replay(document.body, 'fb');
+    if (g.sound) beep(g.kind);
+  }
+
+  // 짧은 알림음. 장르 = 올라가는 두 음, 조작 = 한 음, 무시됨(이미 재생 중) = 낮은 한 음
+  let audio = null;
+  function beep(kind) {
+    try {
+      audio = audio || new AudioContext();
+      audio.resume();
+      const notes = kind === 'genre' ? [660, 990] : kind === 'ignored' ? [330] : [880];
+      notes.forEach((hz, i) => {
+        const at = audio.currentTime + i * 0.09;
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = hz;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.12, at + 0.01); // 작게 (음악을 방해하지 않게)
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(at);
+        osc.stop(at + 0.18);
+      });
+    } catch { /* 소리를 못 내도 나머지는 그대로 */ }
+  }
+
+  // 유지 제스처 게이지 (0~1)
+  Gesture.onProgress((name, ratio) => {
+    document.getElementById('holdBar').style.width = `${ratio * 100}%`;
+  });
+
+  api.on('gesture', showGesture); // main.js 가 제스처를 받아 조작했음
+
+  // 카메라 영상 (MJPEG) — 라즈베리파이 웹캠이든 맥북 카메라든 인식 프로그램이 보내주는 주소를 띄움
+  // 예전엔 <img src="…/stream"> 로 한 번 연결해 두고 계속 썼는데, 영상이 조용히 멈추면(와이파이가 잠깐 끊김,
+  // 인식 프로그램이 다시 켜짐) <img> 는 에러도 안 내고 멈춘 화면 그대로라 "가끔 나가는" 것처럼 보였어요.
+  // 그래서 직접 받아서(fetch) 한 장씩 꺼내 그려요 → 장면이 2.5초 넘게 안 오면 끊긴 걸로 보고 다시 연결.
+  // 그리고 노치를 펼쳤을 때만 연결해요 (접혀 있으면 안 보이니까. 파이도 영상을 안 만들어도 돼서 인식이 빨라짐).
+  let streamUrl = null; // 고른 카메라의 영상 주소 (null 이면 꺼짐)
+  let streamJob = 0; // 연결 번호. 바뀌면 옛 연결은 스스로 그만둠
+  let streamStop = null; // 지금 연결을 끊는 함수
+
+  function showStream(url) {
+    streamUrl = url;
+    syncStream();
+  }
+
+  // 지금 상태(주소, 펼침)에 맞게 연결하거나 끊기
+  function syncStream() {
+    const want = streamUrl && expanded ? streamUrl : null;
+    streamJob += 1;
+    if (streamStop) streamStop();
+    streamStop = null;
+    if (!streamUrl) {
+      document.getElementById('piCam').removeAttribute('src');
+      document.body.dataset.cam = 'off';
+      return;
+    }
+    if (document.body.dataset.cam !== 'pi') document.body.dataset.cam = 'pi-off'; // 첫 장면이 오면 'pi'
+    if (want) watchStream(want, streamJob);
+  }
+
+  async function watchStream(url, job) {
+    const img = document.getElementById('piCam');
+    const alive = () => job === streamJob;
+    while (alive()) {
+      const ctrl = new AbortController();
+      streamStop = () => ctrl.abort();
+      let stall = null;
+      const kick = () => { clearTimeout(stall); stall = setTimeout(() => ctrl.abort(), 2500); }; // 2.5초 조용하면 끊기
+      try {
+        kick();
+        const res = await fetch(`${url}?t=${Date.now()}`, { signal: ctrl.signal, cache: 'no-store' });
+        const reader = res.body.getReader();
+        let buf = new Uint8Array(0);
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const joined = new Uint8Array(buf.length + value.length);
+          joined.set(buf); joined.set(value, buf.length);
+          buf = joined;
+          // 한 장 = "--frame\r\nContent-Type…\r\nContent-Length: N\r\n\r\n" + JPEG N바이트 + "\r\n"
+          for (;;) {
+            const head = findHeaderEnd(buf);
+            if (head < 0) break;
+            const m = /Content-Length:\s*(\d+)/i.exec(new TextDecoder().decode(buf.subarray(0, head)));
+            if (!m) { buf = buf.subarray(head + 4); continue; }
+            const end = head + 4 + Number(m[1]);
+            if (buf.length < end) break; // 아직 다 안 옴
+            const frame = buf.slice(head + 4, end);
+            buf = buf.subarray(end);
+            kick();
+            const old = img.src;
+            img.src = URL.createObjectURL(new Blob([frame], { type: 'image/jpeg' }));
+            if (old.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(old), 500);
+            if (alive()) document.body.dataset.cam = 'pi';
+          }
+        }
+      } catch { /* 끊김 → 아래에서 잠깐 쉬고 다시 */ }
+      clearTimeout(stall);
+      if (!alive()) return;
+      document.body.dataset.cam = 'pi-off';
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  // 머리말 끝(빈 줄, \r\n\r\n)의 위치. 없으면 -1
+  function findHeaderEnd(b) {
+    for (let i = 0; i + 3 < b.length; i++) {
+      if (b[i] === 13 && b[i + 1] === 10 && b[i + 2] === 13 && b[i + 3] === 10) return i;
+    }
+    return -1;
+  }
+  api.on('stream', showStream); // 우클릭 → 카메라 에서 라즈베리파이 ↔ 맥북을 바꿈
+  api.on('camera', (on) => (on ? Camera.start() : Camera.stop())); // 우클릭 메뉴로 켜고 끔
+
+  // 제스처로 장르를 틀면 플랫폼 이름 옆에 "락" 같은 표시
+  function setGenre(name) {
+    const chip = document.getElementById('genreChip');
+    chip.textContent = name || '';
+    chip.classList.remove('on');
+    if (name) { void chip.offsetWidth; chip.classList.add('on'); }
+  }
+  api.on('genre', setGenre);
+
+  api.getState().then((s) => {
+    for (const [key, on] of Object.entries(s.recognizers || {})) {
+      if (on && RECOGNIZERS[key]) RECOGNIZERS[key]();
+    }
+    if (s.piStream) showStream(s.piStream); // 고른 카메라(파이 또는 맥북)의 영상
+    else if (s.camera) Camera.start();
+    setGenre(s.genre);
+  });
+</script>
+</body>
+</html>

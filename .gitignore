@@ -1,0 +1,15 @@
+# 설치하면 생기는 것
+node_modules/
+pi/.venv/
+pi/models/
+pi/data/
+__pycache__/
+*.pyc
+
+# 빌드 결과
+dist/
+
+# 나만 쓰는 설정 (내 맥 · 라즈베리파이 주소)
+pi/config.local.json
+
+.DS_Store

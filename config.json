@@ -1,0 +1,7 @@
+{
+  "clientId": "304e3299f1644f5691329db2e789cf94",
+  "gestureServer": {
+    "host": "0.0.0.0",
+    "port": 8899
+  }
+}

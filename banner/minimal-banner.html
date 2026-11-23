@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>미니멀 배너</title>
+<!-- 노션 본문용 (1600×300). 노션 다크 배경 그대로 + 회색 톤 + 초록은 한 곳에만 -->
+<style>
+  @font-face { font-family: "Pretendard"; src: local("Pretendard Variable"), local("Pretendard"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 300px; overflow: hidden; background: #191919; }
+  body { font-family: "Pretendard", sans-serif; color: #e9e9e7; position: relative; }
+
+  svg.wave { position: absolute; inset: 0; }
+
+  .copy { position: absolute; left: 64px; top: 64px; }
+  .copy .k { font-size: 13px; font-weight: 600; letter-spacing: .18em; color: #7d7d7a; }
+  .copy h2 { margin-top: 12px; font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1.25; color: #e9e9e7; }
+  .copy h2 span { color: #7d7d7a; font-weight: 400; }
+
+  .meta { position: absolute; right: 64px; bottom: 54px; text-align: right; font-size: 13px; color: #6f6f6c; line-height: 1.8; letter-spacing: .02em; }
+  .meta b { color: #a5a5a2; font-weight: 600; }
+
+  /* 노치 (가운데보다 살짝 오른쪽, 파형이 지나가는 자리) */
+  .island { position: absolute; left: 858px; top: 128px; width: 300px; height: 64px; border-radius: 32px; background: #000;
+    display: flex; align-items: center; gap: 14px; padding: 0 14px 0 12px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.06), 0 18px 40px rgba(0,0,0,.45); }
+  .cover { width: 40px; height: 40px; border-radius: 10px; flex: none;
+    background: linear-gradient(135deg, #3b3b39 0%, #262625 100%); position: relative; overflow: hidden; }
+  .cover::after { content: ""; position: absolute; width: 26px; height: 26px; border-radius: 50%; left: 7px; top: 7px;
+    border: 1.5px solid rgba(255,255,255,.18); }
+  .info { flex: 1; min-width: 0; }
+  .info .t { font-size: 15px; font-weight: 650; color: #fff; }
+  .info .a { font-size: 12px; color: #8a8a87; margin-top: 1px; }
+  .bars { display: flex; align-items: center; gap: 3px; height: 22px; }
+  .bars i { width: 3px; border-radius: 2px; background: #8b6cff; }
+</style>
+</head>
+<body>
+  <svg class="wave" viewBox="0 0 1600 300" id="wave"></svg>
+
+  <div class="copy">
+    <div class="k">SNAPTUNE</div>
+    <h2>손짓 한 번,<br><span>음악이 바뀌는 노치</span></h2>
+  </div>
+
+  <div class="island">
+    <div class="cover"></div>
+    <div class="info"><div class="t">Rock</div><div class="a">제스처로 재생 중</div></div>
+    <div class="bars"><i style="height:9px"></i><i style="height:18px"></i><i style="height:12px"></i><i style="height:20px"></i><i style="height:7px"></i></div>
+  </div>
+
+  <div class="meta"><b>Raspberry Pi</b> · MediaPipe · scikit-learn<br>Electron · Spotify Web API</div>
+
+<script>
+  // 가로로 흐르는 소리 파형 한 줄. 노치에 가까울수록 진폭이 커지고, 노치 뒤로 지나감
+  const svg = document.getElementById('wave');
+  const ns = 'http://www.w3.org/2000/svg';
+  const cx = 1008, cy = 160;
+  // 왼쪽 글 위로는 안 지나가게: 640px 부근부터 서서히 나타남
+  svg.innerHTML = '<defs><linearGradient id="fade" x1="0" x2="1600" gradientUnits="userSpaceOnUse">'
+    + '<stop offset="0.38" stop-color="#fff" stop-opacity="0"/><stop offset="0.56" stop-color="#fff" stop-opacity="1"/>'
+    + '<stop offset="0.94" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>'
+    + '<mask id="m"><rect width="1600" height="300" fill="url(#fade)"/></mask></defs><g id="g" mask="url(#m)"></g>';
+  const g = svg.querySelector('#g');
+  function line(phase, amp, color, width) {
+    let d = '';
+    for (let x = 0; x <= 1600; x += 4) {
+      const near = Math.exp(-Math.pow((x - cx) / 330, 2));          // 노치 근처에서 커짐
+      const y = cy + Math.sin(x / 26 + phase) * (3 + amp * near) * Math.sin(x / 140 + phase * .7);
+      d += (x ? 'L' : 'M') + x + ' ' + y.toFixed(1);
+    }
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', d); p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', color); p.setAttribute('stroke-width', width);
+    g.append(p);
+  }
+  line(0, 46, 'rgba(255,255,255,.07)', 1.2);
+  line(1.6, 34, 'rgba(255,255,255,.10)', 1.2);
+  line(3.1, 58, 'rgba(255,255,255,.16)', 1.4);
+</script>
+</body>
+</html>

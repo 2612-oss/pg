@@ -1,0 +1,184 @@
+<!doctype html>
+<!--
+============================================================
+analytics.html — 분석 창 (노치 우클릭 → 분석…, 또는 설정 → 상황 엔진 → 분석 열기)
+============================================================
+상황 엔진이 "잘 맞히고 있나"를 보는 곳. 설정과 달리 고칠 것은 없고 보기 · 지우기만.
+  지표      : 알아서 틀기 vs 직접 고른 것 — 금방 바꾼 비율(낮을수록 좋음) · 이어 들은 시간 · 평균 보상
+  날짜별    : 하루마다 틀은 횟수와 평균 보상
+  장르별    : 몇 번 · 평균 보상 · 금방 바꾼 비율 · 좋아요
+  지금 상황 : 모델이 생각하는 장르별 보상(평균 ± 불확실함)과 고를 확률
+  배운 것   : 상황 × 장르 (✕ 로 그 기록만 지우기)
+  최근 기록 : history.jsonl 의 마지막 60개
+데이터는 main.js 의 analyticsReport() 가 만들어 줘요 (settingsApi.analytics(days)).
+============================================================
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Snaptune 분석</title>
+<style>
+  :root { --bg: #121212; --panel: #1b1b1b; --line: #2a2a2a; --text: #fff; --sub: #a7a7a7; --accent: #8b6cff; --danger: #ff6b6b; --muted: #555; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.5 "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif; padding: 28px; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin: 28px 0 4px; }
+  .sub { color: var(--sub); font-size: 12px; }
+  h2 + .sub { margin-bottom: 12px; }
+  .top { display: flex; align-items: center; gap: 12px; }
+  .grow { flex: 1; }
+  button { background: #2a2a2a; color: var(--text); border: 0; border-radius: 8px; padding: 0 12px; height: 28px; font: inherit; cursor: pointer; }
+  button:hover { background: #333; }
+  button.on { background: var(--accent); color: #000; font-weight: 600; }
+  button.danger { color: var(--danger); }
+  .seg { display: flex; gap: 4px; }
+
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+  .card { background: var(--panel); border-radius: 10px; padding: 12px 14px; }
+  .card .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .card .vs { color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .good { color: var(--accent); } .bad { color: var(--danger); }
+
+  .chart { background: var(--panel); border-radius: 10px; padding: 14px; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+  .bars .d { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; }
+  .bars .d i { display: block; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 0; }
+  .bars .d i.m { background: #3a3a3a; border-radius: 0; }
+  .bars .d i.top { border-radius: 3px 3px 0 0; }
+  .bars .d .r { position: absolute; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: #fff; }
+  .axis { display: flex; gap: 3px; margin-top: 4px; color: var(--sub); font-size: 10px; }
+  .axis span { flex: 1; text-align: center; overflow: hidden; }
+  .legend { display: flex; gap: 14px; margin-top: 8px; color: var(--sub); font-size: 11.5px; }
+  .legend b { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; }
+  th, td { padding: 7px 12px; text-align: left; border-top: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--sub); font-weight: 500; font-size: 12px; border-top: 0; }
+  td.n, th.n { text-align: right; }
+  td.wrap { white-space: normal; }
+  .meter { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: #333; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--accent); }
+  .del { height: 22px; width: 22px; padding: 0; color: var(--sub); }
+  .src { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #2a2a2a; color: var(--sub); }
+  .src.auto { background: rgba(139, 108, 255, .18); color: var(--accent); }
+  .scroll { max-height: 360px; overflow: auto; border-radius: 10px; }
+  .empty { background: var(--panel); border-radius: 10px; padding: 18px; color: var(--sub); }
+  @media (max-width: 700px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div><h1>분석</h1><div class="sub">상황 엔진이 내 취향을 얼마나 잘 맞히고 있는지</div></div>
+    <div class="grow"></div>
+    <div class="seg" id="range"><button data-d="7">7일</button><button data-d="30">30일</button><button data-d="90">90일</button></div>
+    <button id="reload" title="새로고침">↻</button>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <h2>날짜별</h2>
+  <div class="sub">막대 = 그날 튼 횟수 (초록: 알아서 틀기), 점 = 그날 평균 보상</div>
+  <div class="chart"><div class="bars" id="bars"></div><div class="axis" id="axis"></div>
+    <div class="legend"><span><b style="background:var(--accent)"></b>알아서 틀기</span><span><b style="background:#3a3a3a"></b>직접 고름</span><span><b style="background:#fff;border-radius:50%"></b>평균 보상 (−1 ~ +2)</span></div></div>
+
+  <h2>지금 상황에선</h2>
+  <div class="sub" id="nowLabel"></div>
+  <div id="model"></div>
+
+  <h2>장르별</h2>
+  <div class="sub">보상 = 들은 비율(10분 = 1) + 좋아요 1 + 볼륨 올림 0.2 − 금방 바꿈 1 − 넘긴 곡</div>
+  <div id="genres"></div>
+
+  <h2>배운 것 <span class="sub" id="learnCount"></span></h2>
+  <div class="sub">상황 × 장르별 평균 보상. ✕ 를 누르면 그 기록만 지우고 다시 배워요.</div>
+  <div class="scroll" id="learned"></div>
+
+  <h2>최근 기록</h2>
+  <div class="scroll" id="recent"></div>
+
+  <div class="top" style="margin-top:24px"><div class="grow"></div><button class="danger" id="reset">기록 전부 지우기</button></div>
+
+<script>
+  const api = window.settingsApi;
+  const $ = (id) => document.getElementById(id);
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const pct = (x) => (x == null ? '–' : `${Math.round(x * 100)}%`);
+  const sign = (x) => (x == null ? '–' : `${x >= 0 ? '+' : ''}${x.toFixed(2)}`);
+  let days = 30;
+  try { days = Number(localStorage.getItem('days')) || 30; } catch {}
+
+  function card(title, v, vs, cls = '') {
+    return `<div class="card"><div class="sub">${title}</div><div class="v ${cls}">${v}</div><div class="vs">${vs}</div></div>`;
+  }
+
+  function draw(r) {
+    document.querySelectorAll('#range button').forEach((b) => b.classList.toggle('on', Number(b.dataset.d) === r.days));
+    const a = r.stats.auto, m = r.stats.manual;
+    const better = (x, y, lower) => (x == null || y == null ? '' : (lower ? x < y : x > y) ? 'good' : 'bad');
+    $('cards').innerHTML =
+      card('알아서 틀기', a ? `${a.count}번` : '0번', m ? `직접 고름 ${m.count}번` : '직접 고름 0번') +
+      card('금방 바꾼 비율', pct(a?.early), `직접 고름 ${pct(m?.early)} · 낮을수록 좋아요`, better(a?.early, m?.early, true)) +
+      card('이어 들은 시간', a ? `${a.minutes.toFixed(1)}분` : '–', `직접 고름 ${m ? m.minutes.toFixed(1) + '분' : '–'}`, better(a?.minutes, m?.minutes)) +
+      card('평균 보상', sign(a?.reward), `직접 고름 ${sign(m?.reward)} · 좋아요 ${pct(r.stats.liked)}${r.found ? ` · 새로 건짐 ${r.found}` : ''}`, better(a?.reward, m?.reward));
+
+    const max = Math.max(1, ...r.daily.map((d) => d.count));
+    $('bars').innerHTML = r.daily.map((d) => {
+      const dot = d.reward == null ? '' : `<span class="r" style="bottom:${((Math.max(-1, Math.min(2, d.reward)) + 1) / 3) * 100}%"></span>`;
+      const man = d.count - d.auto;
+      return `<div class="d" title="${d.day} · ${d.count}번 (알아서 ${d.auto}) · 보상 ${sign(d.reward)}">${dot}
+        <i class="m ${d.auto ? '' : 'top'}" style="height:${(man / max) * 100}%"></i><i style="height:${(d.auto / max) * 100}%;border-radius:0"></i></div>`;
+    }).join('');
+    const step = Math.ceil(r.daily.length / 10);
+    $('axis').innerHTML = r.daily.map((d, i) => `<span>${i % step === 0 ? d.day : ''}</span>`).join('');
+
+    $('nowLabel').textContent = `${r.now} — 모델이 예상하는 보상(평균 ± 불확실함)과 지금 알아서 틀면 고를 확률`;
+    $('model').innerHTML = r.ranking.length
+      ? `<table><tr><th>장르</th><th class="n">예상 보상</th><th class="n">불확실함</th><th>고를 확률</th><th>이유</th></tr>${r.ranking.map((x) =>
+          `<tr><td><b>${esc(x.genre)}</b></td><td class="n">${sign(x.mean)}</td><td class="n">± ${x.sd.toFixed(2)}</td>
+           <td><span class="meter"><i style="width:${Math.round(x.chance * 100)}%"></i></span>${pct(x.chance)}</td><td class="wrap sub">${esc(x.why.join(' · '))}</td></tr>`).join('')}</table>`
+      : '<div class="empty">설정에서 장르를 먼저 만들어 주세요</div>';
+
+    $('genres').innerHTML = r.genres.length
+      ? `<table><tr><th>장르</th><th class="n">횟수</th><th class="n">알아서</th><th class="n">평균 보상</th><th class="n">금방 바꿈</th><th class="n">좋아요</th><th class="n">들은 시간</th></tr>${r.genres.map((g) =>
+          `<tr><td><b>${esc(g.genre)}</b></td><td class="n">${g.n}</td><td class="n">${g.auto}</td><td class="n ${g.reward >= 0.5 ? 'good' : g.reward < 0 ? 'bad' : ''}">${sign(g.reward)}</td>
+           <td class="n">${pct(g.early)}</td><td class="n">${g.liked}</td><td class="n">${Math.round(g.minutes)}분</td></tr>`).join('')}</table>`
+      : `<div class="empty">최근 ${r.days}일 기록이 없어요</div>`;
+
+    $('learnCount').textContent = r.total ? `(기록 ${r.total}개)` : '';
+    $('learned').innerHTML = r.learned.length
+      ? `<table><tr><th>상황</th><th>장르</th><th class="n">횟수</th><th class="n">평균 보상</th><th class="n">들은 시간</th><th></th></tr>${r.learned.map((l, i) =>
+          `<tr><td>${esc(l.label)}</td><td><b>${esc(l.genre)}</b></td><td class="n">${l.n}</td><td class="n ${l.avg >= 0.5 ? 'good' : l.avg < 0 ? 'bad' : ''}">${sign(l.avg)}</td>
+           <td class="n">${Math.round(l.minutes)}분</td><td><button class="del" data-i="${i}" title="이 기록 지우기">✕</button></td></tr>`).join('')}</table>`
+      : '<div class="empty">아직 없어요. 알아서 틀기나 장르 제스처로 듣다 보면 쌓여요.</div>';
+    $('learned').querySelectorAll('.del').forEach((b) => (b.onclick = async () => {
+      const l = r.learned[b.dataset.i];
+      await api.autoForget({ key: l.key, genre: l.genre });
+      load();
+    }));
+
+    const when = (t) => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const srcName = { auto: '알아서', gesture: '제스처', schedule: '시간대' };
+    $('recent').innerHTML = r.recent.length
+      ? `<table><tr><th>언제</th><th>어떻게</th><th>상황</th><th>장르</th><th class="n">들음</th><th></th><th class="n">보상</th></tr>${r.recent.map((x) =>
+          `<tr><td>${when(x.t)}</td><td><span class="src ${x.src}">${srcName[x.src] || x.src}${x.p != null ? ` ${pct(x.p)}` : ''}</span></td><td class="sub">${esc(x.label)}</td><td><b>${esc(x.genre)}</b></td>
+           <td class="n">${x.listened >= 60 ? Math.round(x.listened / 60) + '분' : x.listened + '초'}</td>
+           <td class="sub">${[x.liked && '♥', x.volUp && '🔊', x.skips && `넘김 ${x.skips}`, x.early && '금방 바꿈'].filter(Boolean).join(' ')}</td>
+           <td class="n ${x.reward >= 0.5 ? 'good' : x.reward < 0 ? 'bad' : ''}">${sign(x.reward)}</td></tr>`).join('')}</table>`
+      : '<div class="empty">아직 기록이 없어요</div>';
+  }
+
+  async function load() { draw(await api.analytics(days)); }
+  document.querySelectorAll('#range button').forEach((b) => (b.onclick = () => {
+    days = Number(b.dataset.d);
+    try { localStorage.setItem('days', days); } catch {}
+    load();
+  }));
+  $('reload').onclick = load;
+  $('reset').onclick = async () => { if (confirm('상황 엔진 기록을 전부 지울까요? 처음부터 다시 배워요.')) { await api.autoForget({}); load(); } };
+  window.addEventListener('focus', load);
+  setInterval(load, 60000);
+  load();
+</script>
+</body>
+</html>

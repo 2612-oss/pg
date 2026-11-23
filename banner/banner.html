@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Snaptune 배너</title>
+<style>
+  @font-face { font-family: "Pretendard"; src: local("Pretendard Variable"), local("Pretendard"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1500px; height: 600px; overflow: hidden; background: #070707; }
+  body { font-family: "Pretendard", "Apple SD Gothic Neo", sans-serif; color: #fff; position: relative; }
+
+  /* 배경: 보라 빛 번짐 + 점 격자 */
+  .glow { position: absolute; border-radius: 50%; filter: blur(90px); }
+  .g1 { width: 620px; height: 420px; right: 120px; top: 90px; background: rgba(139,108,255,.28); }
+  .g2 { width: 420px; height: 300px; left: -80px; top: 220px; background: rgba(139,108,255,.10); }
+  .dots { position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1px);
+    background-size: 26px 26px;
+    mask-image: linear-gradient(90deg, transparent 0%, #000 45%, #000 80%, transparent 100%); }
+
+  /* 왼쪽 글 (노션 커버는 위아래가 잘리니 가운데 띠에 모음) */
+  .text { position: absolute; left: 130px; top: 50%; transform: translateY(-50%); }
+  .eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; color: #8b6cff; letter-spacing: .02em; }
+  .eyebrow i { width: 9px; height: 9px; border-radius: 50%; background: #8b6cff; box-shadow: 0 0 12px #8b6cff; }
+  h1 { font-size: 86px; font-weight: 800; letter-spacing: -.035em; line-height: 1.02; margin-top: 14px; }
+  h1 span { background: linear-gradient(90deg, #ff5ea8, #8b6cff); -webkit-background-clip: text; color: transparent; }
+  .tag { margin-top: 18px; font-size: 27px; font-weight: 500; color: #b9b9b9; letter-spacing: -.01em; }
+  .chips { display: flex; gap: 10px; margin-top: 26px; }
+  .chips div { font-size: 15px; font-weight: 600; color: #d6d6d6; padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); }
+
+  /* 오른쪽: 노치 카드 */
+  .notch { position: absolute; right: 150px; top: 50%; transform: translateY(-50%) rotate(-2deg);
+    width: 470px; background: #000; border-radius: 30px; padding: 18px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 40px 80px rgba(0,0,0,.6), 0 0 120px rgba(139,108,255,.18); }
+  .head { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 14px; }
+  .head .title { font-size: 19px; font-weight: 700; }
+  .head .artist { font-size: 14px; color: #9a9a9a; margin-top: 2px; }
+  .genre { font-size: 13px; font-weight: 700; color: #000; background: #8b6cff; padding: 5px 12px; border-radius: 999px; }
+  .cam { position: relative; height: 230px; border-radius: 18px; overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 100%, #1d2a22 0%, #0d110f 60%, #090909 100%); }
+  .cam svg { position: absolute; inset: 0; }
+  .live { position: absolute; left: 12px; top: 12px; font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #fff;
+    display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.5); padding: 4px 9px; border-radius: 999px; }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: #ff4d4d; }
+  .badge { position: absolute; right: 12px; bottom: 14px; font-size: 14px; font-weight: 700; background: rgba(0,0,0,.6);
+    border: 1px solid rgba(139,108,255,.6); color: #8b6cff; padding: 6px 12px; border-radius: 10px; }
+  .hold { position: absolute; left: 0; bottom: 0; height: 4px; width: 72%; background: #8b6cff; }
+  .ctrl { display: flex; justify-content: center; align-items: center; gap: 46px; padding: 16px 0 4px; }
+  .ctrl svg { fill: #fff; }
+  .play { width: 46px; height: 46px; border-radius: 50%; background: #fff; display: grid; place-items: center; }
+  .play svg { fill: #000; }
+</style>
+</head>
+<body>
+  <div class="dots"></div>
+  <div class="glow g1"></div>
+  <div class="glow g2"></div>
+
+  <div class="text">
+    <div class="eyebrow"><i></i>GESTURE · CONTEXT MUSIC</div>
+    <h1>Snap<span>tune</span></h1>
+    <div class="tag">손짓 한 번, 지금 상황에 딱 맞는 음악</div>
+    <div class="chips">
+      <div>Raspberry Pi</div><div>MediaPipe</div><div>scikit-learn</div><div>Electron</div><div>Contextual Bandit</div>
+    </div>
+  </div>
+
+  <div class="notch">
+    <div class="head">
+      <div><div class="title">오늘의 락 믹스</div><div class="artist">제스처로 재생 중</div></div>
+      <div class="genre">락</div>
+    </div>
+    <div class="cam">
+      <!-- 손 관절 21점 스켈레톤 -->
+      <svg viewBox="0 0 434 230" id="hand"></svg>
+      <div class="live"><i></i>LIVE</div>
+      <div class="badge">rock 🤘 인식</div>
+      <div class="hold"></div>
+    </div>
+    <div class="ctrl">
+      <svg width="24" height="24" viewBox="0 0 24 24"><path d="M6 5h2v14H6zM9.5 12 19 5v14z"/></svg>
+      <div class="play"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></div>
+      <svg width="24" height="24" viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM14.5 12 5 19V5z"/></svg>
+    </div>
+  </div>
+
+<script>
+  // 🤘 모양 손 (검지·새끼 펴고 중지·약지 접음) 좌표
+  const P = [
+    [217,205],                                   // 0 손목
+    [190,190],[170,170],[158,150],[150,132],     // 엄지
+    [196,140],[190,105],[186,78],[183,52],       // 검지 (폄)
+    [215,138],[222,118],[214,132],[209,146],     // 중지 (접음)
+    [234,142],[242,124],[234,138],[229,151],     // 약지 (접음)
+    [250,152],[262,124],[270,100],[276,78],      // 새끼 (폄)
+  ];
+  const L = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+             [9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
+  const svg = document.getElementById('hand');
+  const ns = 'http://www.w3.org/2000/svg';
+  const body = [];
+  for (const [x1,y1,x2,y2] of body) {
+    const l = document.createElementNS(ns, 'line');
+    Object.entries({x1,y1,x2,y2, stroke:'rgba(80,200,255,.55)', 'stroke-width':3, 'stroke-linecap':'round'}).forEach(([k,v])=>l.setAttribute(k,v));
+    svg.append(l);
+  }
+  for (const [a,b] of L) {
+    const l = document.createElementNS(ns, 'line');
+    Object.entries({x1:P[a][0],y1:P[a][1],x2:P[b][0],y2:P[b][1], stroke:'#8b6cff', 'stroke-width':3, 'stroke-linecap':'round'}).forEach(([k,v])=>l.setAttribute(k,v));
+    svg.append(l);
+  }
+  for (const [x,y] of P) {
+    const c = document.createElementNS(ns, 'circle');
+    Object.entries({cx:x, cy:y, r:4.2, fill:'#fff'}).forEach(([k,v])=>c.setAttribute(k,v));
+    svg.append(c);
+  }
+</script>
+</body>
+</html>

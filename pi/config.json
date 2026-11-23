@@ -1,0 +1,11 @@
+{
+  "mac": "http://맥북IP:8899",
+  "camera": 0,
+  "width": 640,
+  "height": 480,
+  "hold_seconds": 1.0,
+  "cooldown_seconds": 1.5,
+  "stream_port": 8090,
+  "oled": true,
+  "use_pose": true
+}

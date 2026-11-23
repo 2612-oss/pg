@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>OLED 연결 도면</title>
+<!-- OLED(SSD1306, I2C 4핀) ↔ 라즈베리파이 연결 도면 (1600×980). 노션 다크 배경색에 맞춤 -->
+<style>
+  @font-face { font-family: "Pretendard"; src: local("Pretendard Variable"), local("Pretendard"); font-weight: 100 900; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 980px; overflow: hidden; background: #191919; }
+  svg { display: block; font-family: "Pretendard", sans-serif; }
+  .t { fill: #fff; } .s { fill: #9b9b98; } .m { font-family: ui-monospace, Menlo, monospace; }
+  .wire { fill: none; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+  .halo { fill: none; stroke: #191919; stroke-width: 17; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1600 980" width="1600" height="980">
+  <!-- 제목 -->
+  <text x="100" y="78" class="t" font-size="38" font-weight="800" letter-spacing="-1">OLED 연결 도면</text>
+  <text x="100" y="112" class="s" font-size="18">SSD1306 · 0.96인치 · I2C 4핀 → 라즈베리파이 핀 4개</text>
+
+  <!-- 핀 확대 칸의 바탕 (선이 이 위로 지나가고, 핀 동그라미는 맨 위에 그림) -->
+  <rect x="1040" y="200" width="460" height="490" rx="24" fill="#16372a" stroke="rgba(255,255,255,.14)" stroke-width="2"/>
+  <text x="1140" y="240" text-anchor="middle" class="s" font-size="15" font-weight="600">안쪽 줄</text>
+  <text x="1330" y="240" text-anchor="middle" class="s" font-size="15" font-weight="600">바깥쪽 줄 (보드 가장자리)</text>
+  <rect x="1078" y="252" width="314" height="392" rx="14" fill="#0b0b0b"/>
+
+  <!-- ================= 선 (먼저 그리고 부품이 위에 올라감) ================= -->
+  <!-- GND: 맨 바깥으로 크게 돌아서 6번(바깥쪽 줄)에 오른쪽에서 꽂힘 -->
+  <path class="wire" stroke="#d6d6d3" d="M205 330 V180 Q205 160 225 160 H1525 Q1545 160 1545 180 V540 Q1545 560 1525 560 H1372"/>
+  <!-- SCL: 5번 -->
+  <path class="wire" stroke="#ffd23f" d="M345 330 V285 Q345 265 365 265 H800 Q820 265 820 285 V540 Q820 560 840 560 H1100"/>
+  <!-- SDA: 3번 (SCL 선을 한 번 넘어감) -->
+  <path class="halo" d="M415 300 V215"/>
+  <path class="wire" stroke="#4da3ff" d="M415 330 V250 Q415 230 435 230 H840 Q860 230 860 250 V410 Q860 430 880 430 H1100"/>
+  <!-- VCC: 1번 -->
+  <path class="wire" stroke="#ff5a52" d="M275 330 V215 Q275 195 295 195 H880 Q900 195 900 215 V280 Q900 300 920 300 H1100"/>
+
+  <!-- 선 위 이름표 -->
+  <g font-size="15" font-weight="700" text-anchor="middle">
+    <g transform="translate(640 160)"><rect x="-58" y="-15" width="116" height="30" rx="15" fill="#191919" stroke="#d6d6d3" stroke-width="2"/><text y="5" fill="#d6d6d3">GND → 6번</text></g>
+    <g transform="translate(640 195)"><rect x="-58" y="-15" width="116" height="30" rx="15" fill="#191919" stroke="#ff5a52" stroke-width="2"/><text y="5" fill="#ff5a52">VCC → 1번</text></g>
+    <g transform="translate(640 230)"><rect x="-58" y="-15" width="116" height="30" rx="15" fill="#191919" stroke="#4da3ff" stroke-width="2"/><text y="5" fill="#4da3ff">SDA → 3번</text></g>
+    <g transform="translate(640 265)"><rect x="-58" y="-15" width="116" height="30" rx="15" fill="#191919" stroke="#ffd23f" stroke-width="2"/><text y="5" fill="#ffd23f">SCL → 5번</text></g>
+  </g>
+
+  <!-- ================= OLED 모듈 ================= -->
+  <g>
+    <rect x="110" y="300" width="380" height="360" rx="18" fill="#1d4f9c"/>
+    <rect x="110" y="300" width="380" height="360" rx="18" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="2"/>
+    <!-- 모서리 나사 구멍 -->
+    <g fill="#191919" stroke="#c9a94b" stroke-width="3"><circle cx="136" cy="326" r="9"/><circle cx="464" cy="326" r="9"/><circle cx="136" cy="634" r="9"/><circle cx="464" cy="634" r="9"/></g>
+    <!-- 핀 4개 -->
+    <g>
+      <g fill="#c9a94b"><circle cx="205" cy="330" r="13"/><circle cx="275" cy="330" r="13"/><circle cx="345" cy="330" r="13"/><circle cx="415" cy="330" r="13"/></g>
+      <g fill="#191919"><circle cx="205" cy="330" r="5"/><circle cx="275" cy="330" r="5"/><circle cx="345" cy="330" r="5"/><circle cx="415" cy="330" r="5"/></g>
+      <g font-size="17" font-weight="800" text-anchor="middle" class="m">
+        <text x="205" y="368" fill="#d6d6d3">GND</text><text x="275" y="368" fill="#ff8a84">VCC</text>
+        <text x="345" y="368" fill="#ffd23f">SCL</text><text x="415" y="368" fill="#8cc4ff">SDA</text>
+      </g>
+    </g>
+    <!-- 화면 -->
+    <rect x="140" y="395" width="320" height="210" rx="8" fill="#050505" stroke="#0e2a55" stroke-width="4"/>
+    <g class="m" fill="#eaf4ff" font-size="24" font-weight="700">
+      <text x="160" y="440">[rock]</text>
+      <text x="160" y="480">Song Title</text>
+      <text x="160" y="520">&gt; rock</text>
+      <rect x="160" y="552" width="280" height="26" fill="none" stroke="#eaf4ff" stroke-width="3"/>
+      <rect x="160" y="552" width="170" height="26"/>
+    </g>
+    <text x="300" y="640" text-anchor="middle" fill="rgba(255,255,255,.55)" font-size="15" font-weight="600">OLED 모듈 (앞에서 본 모습)</text>
+  </g>
+
+  <!-- ================= 라즈베리파이 핀 확대 ================= -->
+  <g>
+
+    <!-- 1번: 3.3V -->
+    <circle cx="1140" cy="300" r="40" fill="#ff5a52"/><text x="1140" y="312" text-anchor="middle" font-size="34" font-weight="800" fill="#1a0504">1</text>
+    <text x="1140" y="366" text-anchor="middle" font-size="16" font-weight="700" fill="#ff8a84">3.3V</text>
+    <!-- 2번: 5V 금지 -->
+    <circle cx="1330" cy="300" r="40" fill="#2b2b2b" stroke="#555" stroke-width="2"/><text x="1330" y="312" text-anchor="middle" font-size="34" font-weight="800" fill="#777">2</text>
+    <text x="1330" y="366" text-anchor="middle" font-size="16" font-weight="700" fill="#ff8a84">5V ✕ 꽂지 마세요</text>
+    <!-- 3번: SDA -->
+    <circle cx="1140" cy="430" r="40" fill="#4da3ff"/><text x="1140" y="442" text-anchor="middle" font-size="34" font-weight="800" fill="#04182e">3</text>
+    <text x="1140" y="496" text-anchor="middle" font-size="16" font-weight="700" fill="#8cc4ff">SDA · GPIO2</text>
+    <!-- 4번: 5V 금지 -->
+    <circle cx="1330" cy="430" r="40" fill="#2b2b2b" stroke="#555" stroke-width="2"/><text x="1330" y="442" text-anchor="middle" font-size="34" font-weight="800" fill="#777">4</text>
+    <text x="1330" y="496" text-anchor="middle" font-size="16" font-weight="700" fill="#ff8a84">5V ✕ 꽂지 마세요</text>
+    <!-- 5번: SCL -->
+    <circle cx="1140" cy="560" r="40" fill="#ffd23f"/><text x="1140" y="572" text-anchor="middle" font-size="34" font-weight="800" fill="#2b2100">5</text>
+    <text x="1140" y="626" text-anchor="middle" font-size="16" font-weight="700" fill="#ffd23f">SCL · GPIO3</text>
+    <!-- 6번: GND -->
+    <circle cx="1330" cy="560" r="40" fill="#d6d6d3"/><text x="1330" y="572" text-anchor="middle" font-size="34" font-weight="800" fill="#191919">6</text>
+    <text x="1330" y="626" text-anchor="middle" font-size="16" font-weight="700" fill="#d6d6d3">GND</text>
+
+    <text x="1270" y="674" text-anchor="middle" class="s" font-size="14">핀 헤더 맨 끝 6개를 위에서 본 모습 (7번부터는 아래로 이어짐)</text>
+  </g>
+
+  <!-- ================= 보드 전체에서 어디? ================= -->
+  <g>
+    <text x="640" y="548" class="s" font-size="15" font-weight="600">보드에서 이 자리예요</text>
+    <!-- 보드 (핀 헤더가 오른쪽, SD카드가 위, USB가 아래로 오게 세워 놓은 모습) -->
+    <rect x="640" y="565" width="250" height="365" rx="16" fill="#1f6b49"/>
+    <rect x="660" y="552" width="70" height="26" rx="4" fill="#8a8a8a"/><text x="695" y="571" text-anchor="middle" font-size="12" font-weight="700" fill="#191919">SD카드</text>
+    <rect x="738" y="700" width="78" height="78" rx="6" fill="#2a2a2a"/><text x="777" y="744" text-anchor="middle" font-size="12" fill="#aaa">CPU</text>
+    <g fill="#c8c8c8"><rect x="652" y="894" width="62" height="50" rx="4"/><rect x="724" y="894" width="62" height="50" rx="4"/><rect x="800" y="894" width="72" height="50" rx="4"/></g>
+    <g font-size="12" font-weight="700" fill="#191919" text-anchor="middle"><text x="683" y="924">USB</text><text x="755" y="924">USB</text><text x="836" y="924">랜</text></g>
+    <!-- 핀 헤더 2줄 × 20 -->
+    <rect x="846" y="582" width="34" height="296" rx="4" fill="#0b0b0b"/>
+    <g fill="#c9a94b" id="hdr"></g>
+    <!-- 확대한 자리 표시 -->
+    <rect x="841" y="578" width="44" height="50" rx="6" fill="none" stroke="#fff" stroke-width="3"/>
+    <path d="M885 590 C 960 560, 980 420, 1040 400" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="6 6"/>
+    <text x="910" y="640" class="t" font-size="14" font-weight="700">맨 끝 6개</text>
+    <text x="910" y="660" class="s" font-size="13">(SD카드 쪽 끝)</text>
+  </g>
+
+  <!-- ================= 연결 표 ================= -->
+  <g font-size="18">
+    <text x="110" y="722" class="t" font-size="20" font-weight="800">연결 표</text>
+    <g transform="translate(110 742)">
+      <rect width="460" height="188" rx="14" fill="#202020" stroke="rgba(255,255,255,.08)"/>
+      <g font-weight="700">
+        <circle cx="30" cy="34" r="8" fill="#ff5a52"/><text x="52" y="40" fill="#ff8a84">VCC</text><text x="150" y="40" class="s">→</text><text x="190" y="40" class="t">1번</text><text x="250" y="40" class="s" font-weight="500">3.3V (전원)</text>
+        <circle cx="30" cy="76" r="8" fill="#4da3ff"/><text x="52" y="82" fill="#8cc4ff">SDA</text><text x="150" y="82" class="s">→</text><text x="190" y="82" class="t">3번</text><text x="250" y="82" class="s" font-weight="500">GPIO2 (데이터)</text>
+        <circle cx="30" cy="118" r="8" fill="#ffd23f"/><text x="52" y="124" fill="#ffd23f">SCL</text><text x="150" y="124" class="s">→</text><text x="190" y="124" class="t">5번</text><text x="250" y="124" class="s" font-weight="500">GPIO3 (박자 신호)</text>
+        <circle cx="30" cy="160" r="8" fill="#d6d6d3"/><text x="52" y="166" fill="#d6d6d3">GND</text><text x="150" y="166" class="s">→</text><text x="190" y="166" class="t">6번</text><text x="250" y="166" class="s" font-weight="500">GND (접지)</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ================= 주의 ================= -->
+  <g transform="translate(1040 722)">
+    <rect width="460" height="218" rx="14" fill="#2a1d1c" stroke="rgba(255,90,82,.35)"/>
+    <text x="24" y="40" fill="#ff8a84" font-size="20" font-weight="800">꽂기 전에</text>
+    <g font-size="16.5" class="t">
+      <text x="24" y="78">① 라즈베리파이 전원을 끄고 꽂으세요.</text>
+      <text x="24" y="112">② OLED에 적힌 글자를 보고 꽂으세요.</text>
+      <text x="46" y="136" class="s" font-size="15">제품마다 핀 순서가 달라요 (VCC·GND가 바뀐 것도 있음)</text>
+      <text x="24" y="170">③ VCC는 꼭 1번(3.3V). 2·4번(5V)은 안 돼요.</text>
+      <text x="24" y="202" class="s" font-size="15">꽂은 뒤: 노치 우클릭 → 라즈베리파이 인식 → 다시 켜기</text>
+    </g>
+  </g>
+</svg>
+<script>
+  // 보드 그림의 핀 헤더 점 40개 (2줄 × 20)
+  const g = document.getElementById('hdr');
+  for (let r = 0; r < 20; r++) for (let c = 0; c < 2; c++) {
+    const d = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    d.setAttribute('cx', 855 + c * 16); d.setAttribute('cy', 591 + r * 14.6); d.setAttribute('r', 4);
+    g.append(d);
+  }
+</script>
+</body>
+</html>
