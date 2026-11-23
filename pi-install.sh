@@ -8,6 +8,14 @@
 # 이번 버전부터는 파이가 스스로 업데이트해요 (updater.py) → 이 줄은 다시 칠 일이 거의 없어요.
 # ============================================================
 set -euo pipefail
+# 이 줄은 라즈베리파이(리눅스)용이에요. 맥에서 치면 멈춤
+if [ "$(uname -s)" != Linux ]; then
+  echo "이건 라즈베리파이에서 치는 줄이에요."
+  echo "맥은 앱만 설치하면 돼요 (맥북 카메라 인식은 앱이 알아서 설치):"
+  echo "  curl -fsSL https://github.com/2612-oss/pg/releases/latest/download/install.sh | bash"
+  echo "라즈베리파이에 접속해서(ssh 사용자@파이IP) 그 안에서 이 줄을 다시 쳐 주세요."
+  exit 1
+fi
 BASE=https://github.com/2612-oss/pg/releases/latest/download
 DIR=$(systemctl show -p WorkingDirectory --value gesture-pi 2>/dev/null || true)
 case "$DIR" in ""|/) DIR="$HOME/gesture-pi" ;; esac
